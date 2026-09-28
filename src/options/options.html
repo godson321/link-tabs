@@ -27,7 +27,7 @@
     <section class="card">
       <h2>规则</h2>
       <p class="hint">按顺序匹配，<strong>第一条命中的规则生效</strong>：先检查全部网址规则，再检查域名规则；表格按此顺序排列。拖动文字搜索按当前所在页面的网址/域名匹配。</p>
-      <p class="hint">动作：<span class="action-badge" title="后台新标签页">后</span> = 后台新标签页，<span class="action-badge" title="前台新标签页">前</span> = 前台新标签页，<span class="action-badge" title="按浏览器原行为">原</span> = 按浏览器原行为。列头：点击 = 点击链接；拖链接 = 拖动链接到空白处松手；拖文字 = 拖动选中的文字搜索（按当前页面匹配）；列头复选框 = 该功能的全局启停。</p>
+      <p class="hint">动作：<span class="action-badge" title="后台新标签页">后</span> = 后台新标签页，<span class="action-badge" title="前台新标签页">前</span> = 前台新标签页，<span class="action-badge" title="按浏览器原行为">原</span> = 按浏览器原行为。列头：点击 = 点击链接；拖动 = 拖动链接到空白处松手；划词 = 拖动选中的文字搜索（按当前页面匹配）；列头复选框 = 该功能的全局启停。</p>
 
       <div class="rules-toolbar">
         <button type="button" id="open-add-dialog">添加规则</button>
@@ -38,9 +38,9 @@
           <col style="width: 52px;">
           <col>
           <col style="width: 46px;">
-          <col style="width: 56px;">
-          <col style="width: 56px;">
-          <col style="width: 56px;">
+          <col style="width: 52px;">
+          <col style="width: 52px;">
+          <col style="width: 52px;">
           <col style="width: 46px;">
         </colgroup>
         <thead>
@@ -48,9 +48,9 @@
             <th>类型</th>
             <th>规则</th>
             <th class="center">动作</th>
-            <th class="center" data-column="click" title="点击链接"><span class="col-name">点击</span><span class="sub"><input type="checkbox" id="header-click" title="全局启用：点击链接" aria-label="全局启用：点击链接"></span></th>
-            <th class="center" data-column="drag" title="拖动链接到页面空白处松手"><span class="col-name">拖链接</span><span class="sub"><input type="checkbox" id="header-drag" title="全局启用：拖动链接" aria-label="全局启用：拖动链接"></span></th>
-            <th class="center" data-column="search" title="拖动选中的文字搜索（按当前页面匹配）"><span class="col-name">拖文字</span><span class="sub"><input type="checkbox" id="header-search" title="全局启用：拖动文字搜索" aria-label="全局启用：拖动文字搜索"></span></th>
+            <th class="center" data-column="click" title="点击链接"><label class="column-head"><input type="checkbox" id="header-click" title="全局启用：点击链接" aria-label="全局启用：点击链接"><span class="col-name">点击</span></label></th>
+            <th class="center" data-column="drag" title="拖动链接到页面空白处松手"><label class="column-head"><input type="checkbox" id="header-drag" title="全局启用：拖动链接" aria-label="全局启用：拖动链接"><span class="col-name">拖动</span></label></th>
+            <th class="center" data-column="search" title="拖动选中的文字搜索（按当前页面匹配）"><label class="column-head"><input type="checkbox" id="header-search" title="全局启用：拖动文字搜索" aria-label="全局启用：拖动文字搜索"><span class="col-name">划词</span></label></th>
             <th></th>
           </tr>
         </thead>

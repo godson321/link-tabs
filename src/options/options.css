@@ -205,13 +205,13 @@ button:disabled {
   line-height: 1.35;
 }
 
-.rules-table th .sub {
-  display: block;
-  font-size: 11px;
-}
-
-.rules-table th .sub input[type="checkbox"] {
-  margin-top: 3px;
+.rules-table th .column-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 400;
+  white-space: nowrap;
+  cursor: pointer;
 }
 
 .rules-table td.center,
