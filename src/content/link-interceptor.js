@@ -34,10 +34,10 @@ function resolveLinkTarget(anchor) {
   return target;
 }
 
-/** 计算应执行的动作；规则计算异常时返回 null 并记录诊断，保持浏览器原生行为。 */
-function resolveActionDiagnosed(url) {
+/** 计算某块功能应执行的动作；规则计算异常时返回 null 并记录诊断，保持浏览器原生行为。 */
+function resolveActionDiagnosed(url, use) {
   try {
-    return LinkTabsRules.resolveAction(url, currentSettings);
+    return LinkTabsRules.resolveAction(url, currentSettings, use);
   } catch (error) {
     console.error("Link Tabs:", error);
     return null;
@@ -88,7 +88,7 @@ document.addEventListener("click", event => {
   const target = resolveLinkTarget(anchor);
   if (target === null) return;
 
-  const action = resolveActionDiagnosed(target.href);
+  const action = resolveActionDiagnosed(target.href, "click");
   if (action === null || action === "native") return;
 
   event.preventDefault();
@@ -96,37 +96,60 @@ document.addEventListener("click", event => {
   requestOpenLinkTab(target.href, action);
 }, true);
 
-// —— 拖拽开链接：按住左键把链接拖到页面空白处松手，效果与点击该链接一致。 ——
-let draggedLink = null;        // 已武装的拖拽目标 { href }
+// —— 拖拽开链接 / 拖动文字搜索：按住左键拖到页面空白处松手，效果与点击链接或直接搜索一致。 ——
+let draggedTarget = null;      // 已武装的拖拽目标：{ kind: "link", href } 或 { kind: "search", text }
 let dragDropHandled = false;   // 页面内的放置区已接收本次拖放
 let dragCancelled = false;     // 拖拽中窗口失焦（拖拽被系统取消）
 let lastDragOverFrame = false; // 最近一次拖拽悬停的目标是内嵌框架
 
 document.addEventListener("dragstart", event => {
-  draggedLink = null;
+  draggedTarget = null;
   dragDropHandled = false;
   dragCancelled = false;
   lastDragOverFrame = false;
   if (currentSettings === undefined) return;
 
   const source = event.target instanceof Element ? event.target : null;
+  const dragTypes = Array.from(event.dataTransfer?.types ?? []);
+  const modifierPressed = event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
+
+  // 选中文字的拖拽优先判定：选择拖拽不带 text/uri-list，且拖动源必须落在选区里，
+  // 因此拖动未选中的链接不会走进这个分支。
+  const selection = window.getSelection();
+  const selectionText = selection === null ? "" : LinkTabsDrag.normalizeSelectionText(selection.toString());
+  const searchArmed = LinkTabsDrag.shouldArmSearchDrag({
+    trusted: event.isTrusted,
+    sourceIsSearchable: selectionText !== "" &&
+      source !== null &&
+      !(source instanceof HTMLImageElement) &&
+      !(source.isContentEditable || source.closest("input, textarea") !== null) &&
+      document.designMode !== "on" &&
+      selection.containsNode(source, true),
+    dragTypes,
+    modifierPressed
+  });
+  if (searchArmed) {
+    draggedTarget = { kind: "search", text: selectionText };
+    return;
+  }
+
   const anchor = source === null ? null : source.closest("a[href]");
-  const armed = LinkTabsDrag.shouldArmDrag({
+  const linkArmed = LinkTabsDrag.shouldArmDrag({
     trusted: event.isTrusted,
     // 拖动链接里的图片时，用户拖的是图片而不是链接。
     sourceIsLink: anchor !== null && !(source instanceof HTMLImageElement),
-    dragTypes: Array.from(event.dataTransfer?.types ?? []),
-    modifierPressed: event.ctrlKey || event.shiftKey || event.altKey || event.metaKey
+    dragTypes,
+    modifierPressed
   });
-  if (!armed) return;
+  if (!linkArmed) return;
 
   const target = resolveLinkTarget(anchor);
   if (target === null) return;
-  draggedLink = { href: target.href };
+  draggedTarget = { kind: "link", href: target.href };
 }, true);
 
 const trackDragTarget = event => {
-  if (draggedLink === null) return;
+  if (draggedTarget === null) return;
   lastDragOverFrame = event.target instanceof HTMLIFrameElement;
 };
 document.addEventListener("dragenter", trackDragTarget, true);
@@ -134,17 +157,17 @@ document.addEventListener("dragover", trackDragTarget, true);
 
 document.addEventListener("drop", () => {
   // 页面内的放置区（编辑器、上传框等）接收了这次拖放，保持原生。
-  if (draggedLink !== null) dragDropHandled = true;
+  if (draggedTarget !== null) dragDropHandled = true;
 }, true);
 
 window.addEventListener("blur", () => {
-  if (draggedLink !== null) dragCancelled = true;
+  if (draggedTarget !== null) dragCancelled = true;
 });
 
 document.addEventListener("dragend", event => {
-  const link = draggedLink;
-  draggedLink = null;
-  if (link === null) return;
+  const dragged = draggedTarget;
+  draggedTarget = null;
+  if (dragged === null) return;
 
   const open = LinkTabsDrag.shouldOpenOnRelease({
     dropHandled: dragDropHandled,
@@ -156,7 +179,16 @@ document.addEventListener("dragend", event => {
   }, window.innerWidth, window.innerHeight);
   if (!open || currentSettings === undefined) return;
 
-  const action = resolveActionDiagnosed(link.href);
+  // 链接拖动按链接目标匹配规则；文字搜索没有链接目标，按当前所在页面匹配规则
+  // （内嵌框架中按框架自身地址匹配，与本框架内链接的解析口径保持一致）。
+  const action = resolveActionDiagnosed(
+    dragged.kind === "link" ? dragged.href : location.href,
+    dragged.kind === "link" ? "drag" : "search"
+  );
   if (action === null || action === "native") return;
-  requestOpenLinkTab(link.href, action);
+
+  const url = dragged.kind === "link"
+    ? dragged.href
+    : LinkTabsRules.buildSearchUrl(dragged.text, currentSettings.searchEngine);
+  requestOpenLinkTab(url, action);
 }, true);

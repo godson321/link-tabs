@@ -9,6 +9,24 @@
 
 const ACTIONS = Object.freeze(["background", "foreground", "native"]);
 
+/** 拖动选中的文字去搜索时可选用的搜索引擎；默认 Bing（Edge 自带默认）。 */
+const SEARCH_ENGINES = Object.freeze(["bing", "google", "baidu"]);
+
+const SEARCH_ENGINE_URLS = Object.freeze({
+  bing: "https://www.bing.com/search?q=",
+  google: "https://www.google.com/search?q=",
+  baidu: "https://www.baidu.com/s?wd="
+});
+
+/** 三块可独立配置的功能；规则中的勾选字段与设置中的功能开关字段一一对应。 */
+const FUNCTIONS = Object.freeze(["click", "drag", "search"]);
+
+const FUNCTION_SWITCHES = Object.freeze({
+  click: "clickEnabled",
+  drag: "linkDragEnabled",
+  search: "textDragEnabled"
+});
+
 /** 网址规则只覆盖这两种协议；两者默认端口不同，校验模式时都要考虑。 */
 const URL_SCHEMES = Object.freeze(["http", "https"]);
 
@@ -19,6 +37,10 @@ const MAX_DOMAIN_LABEL_LENGTH = 63;
 const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   defaultAction: "background",
+  searchEngine: "bing",
+  clickEnabled: true,
+  linkDragEnabled: true,
+  textDragEnabled: true,
   domainRules: Object.freeze([]),
   urlRules: Object.freeze([])
 });
@@ -29,6 +51,25 @@ function isPlainObject(value) {
 
 function isSupportedAction(action) {
   return ACTIONS.includes(action);
+}
+
+/** 规则的三项功能勾选；缺省视为勾选（旧规则的兼容行为：三项全开）。 */
+function normalizeRuleFunctions(rule) {
+  return {
+    click: rule.click === undefined ? true : rule.click,
+    drag: rule.drag === undefined ? true : rule.drag,
+    search: rule.search === undefined ? true : rule.search
+  };
+}
+
+function validateRuleFunctions(functions) {
+  if (!FUNCTIONS.every(name => typeof functions[name] === "boolean")) {
+    return { valid: false, error: "功能选择无效" };
+  }
+  if (!FUNCTIONS.some(name => functions[name])) {
+    return { valid: false, error: "请至少勾选一个功能" };
+  }
+  return { valid: true };
 }
 
 /**
@@ -76,6 +117,9 @@ function validateDomainRule(rule) {
     return { valid: false, error: "“包含子域名”选项必须为布尔值" };
   }
   if (!isSupportedAction(rule.action)) return { valid: false, error: "动作选项无效" };
+  const functions = normalizeRuleFunctions(rule);
+  const functionsResult = validateRuleFunctions(functions);
+  if (!functionsResult.valid) return functionsResult;
   return { valid: true };
 }
 
@@ -410,6 +454,9 @@ function validateUrlRule(rule) {
     return { valid: false, error: "网址模式的主机名、端口或 IPv6 地址无效" };
   }
   if (!isSupportedAction(rule.action)) return { valid: false, error: "动作选项无效" };
+  const functions = normalizeRuleFunctions(rule);
+  const functionsResult = validateRuleFunctions(functions);
+  if (!functionsResult.valid) return functionsResult;
   return { valid: true };
 }
 
@@ -418,7 +465,8 @@ function normalizeDomainRule(rule) {
   const candidate = {
     domain: typeof rule.domain === "string" ? rule.domain.trim().toLowerCase() : "",
     includeSubdomains: rule.includeSubdomains === true,
-    action: rule.action
+    action: rule.action,
+    ...normalizeRuleFunctions(rule)
   };
   if (typeof rule.id === "string" && rule.id) candidate.id = rule.id;
   return validateDomainRule(candidate).valid ? candidate : null;
@@ -428,7 +476,8 @@ function normalizeUrlRule(rule) {
   if (!isPlainObject(rule)) return null;
   const candidate = {
     pattern: typeof rule.pattern === "string" ? rule.pattern.trim() : "",
-    action: rule.action
+    action: rule.action,
+    ...normalizeRuleFunctions(rule)
   };
   if (typeof rule.id === "string" && rule.id) candidate.id = rule.id;
   return validateUrlRule(candidate).valid ? candidate : null;
@@ -441,13 +490,28 @@ function normalizeSettings(rawSettings) {
   const defaultAction = isSupportedAction(raw.defaultAction)
     ? raw.defaultAction
     : DEFAULT_SETTINGS.defaultAction;
+  const searchEngine = SEARCH_ENGINES.includes(raw.searchEngine)
+    ? raw.searchEngine
+    : DEFAULT_SETTINGS.searchEngine;
+  const functions = {};
+  for (const name of FUNCTIONS) {
+    const switchName = FUNCTION_SWITCHES[name];
+    functions[switchName] = typeof raw[switchName] === "boolean"
+      ? raw[switchName]
+      : DEFAULT_SETTINGS[switchName];
+  }
   const domainRules = Array.isArray(raw.domainRules)
     ? raw.domainRules.map(normalizeDomainRule).filter(Boolean)
     : [];
   const urlRules = Array.isArray(raw.urlRules)
     ? raw.urlRules.map(normalizeUrlRule).filter(Boolean)
     : [];
-  return { enabled, defaultAction, domainRules, urlRules };
+  return { enabled, defaultAction, searchEngine, ...functions, domainRules, urlRules };
+}
+
+/** 按所选搜索引擎构造搜索网址；引擎取值由 normalizeSettings 保证合法。 */
+function buildSearchUrl(text, engine) {
+  return SEARCH_ENGINE_URLS[engine] + encodeURIComponent(text);
 }
 
 /**
@@ -461,15 +525,17 @@ function matchesDomain(hostname, rule) {
 }
 
 /**
- * 解析链接应执行的动作。
- * `url` 使用浏览器序列化后的 href（内容脚本传入的正是 `target.href`）：
- * 规则的校验与匹配都以序列化形式为准。
- * 顺序：归一化设置 → 停用返回 native → 非 HTTP/HTTPS 返回 native
- * → 第一条匹配的网址规则 → 第一条匹配的域名规则 → 全局默认行为。
+ * 解析一个地址在某块功能下应执行的动作。
+ * `url` 使用浏览器序列化后的 href（点击与拖动链接传入链接目标，拖动文字搜索传入当前页面地址）。
+ * `use` 指定功能：`"click"`（默认，左键点击链接）、`"drag"`（拖动链接）、`"search"`（拖动文字搜索）。
+ * 顺序：归一化设置 → 总开关或该功能的开关关闭返回 native → 非 HTTP/HTTPS 返回 native
+ * → 第一条勾选了该功能的匹配网址规则 → 第一条勾选了该功能的匹配域名规则 → 全局默认行为。
  */
-function resolveAction(url, settings) {
+function resolveAction(url, settings, use = "click") {
   const normalized = normalizeSettings(settings);
   if (!normalized.enabled) return "native";
+  if (!FUNCTIONS.includes(use)) return "native";
+  if (normalized[FUNCTION_SWITCHES[use]] !== true) return "native";
 
   let parsed;
   try {
@@ -483,6 +549,7 @@ function resolveAction(url, settings) {
   if (target === null) return "native";
 
   for (const rule of normalized.urlRules) {
+    if (rule[use] !== true) continue;
     const pattern = normalizeUrlForMatch(rule.pattern);
     if (pattern !== null && wildcardMatches(pattern, target)) {
       return rule.action;
@@ -491,6 +558,7 @@ function resolveAction(url, settings) {
 
   const hostname = parsed.hostname.toLowerCase();
   for (const rule of normalized.domainRules) {
+    if (rule[use] !== true) continue;
     if (matchesDomain(hostname, rule)) return rule.action;
   }
 
@@ -499,11 +567,13 @@ function resolveAction(url, settings) {
 
 const LinkTabsRules = {
   ACTIONS,
+  SEARCH_ENGINES,
   DEFAULT_SETTINGS,
   normalizeSettings,
   validateDomainRule,
   validateUrlRule,
-  resolveAction
+  resolveAction,
+  buildSearchUrl
 };
 
 if (typeof module !== "undefined" && module.exports) {

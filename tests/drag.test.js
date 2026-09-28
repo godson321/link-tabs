@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { shouldArmDrag, shouldOpenOnRelease } = require("../src/shared/drag.js");
+const { shouldArmDrag, shouldArmSearchDrag, shouldOpenOnRelease, normalizeSelectionText } = require("../src/shared/drag.js");
 
 const armedDrag = {
   trusted: true,
@@ -58,4 +58,31 @@ test("松手位置在视口外（浏览器界面、窗口外）不打开", () =>
 test("视口边界坐标仍视为页面内", () => {
   assert.equal(shouldOpenOnRelease({ ...release, clientX: 0, clientY: 0 }, 800, 600), true);
   assert.equal(shouldOpenOnRelease({ ...release, clientX: 800, clientY: 600 }, 800, 600), true);
+});
+
+const armedSearch = {
+  trusted: true,
+  sourceIsSearchable: true,
+  dragTypes: ["text/plain", "text/html"],
+  modifierPressed: false
+};
+test("拖动选中的文字会武装搜索", () => {
+  assert.equal(shouldArmSearchDrag(armedSearch), true);
+});
+test("搜索拖拽的任一条件不满足都不武装", () => {
+  assert.equal(shouldArmSearchDrag({ ...armedSearch, trusted: false }), false);
+  // 选中内容为空、位于输入框/编辑器内或拖动的是图片时都不搜索。
+  assert.equal(shouldArmSearchDrag({ ...armedSearch, sourceIsSearchable: false }), false);
+  assert.equal(shouldArmSearchDrag({ ...armedSearch, dragTypes: ["text/html"] }), false);
+  assert.equal(shouldArmSearchDrag({ ...armedSearch, dragTypes: undefined }), false);
+  assert.equal(shouldArmSearchDrag({ ...armedSearch, modifierPressed: true }), false);
+});
+test("选取文本做修剪并按码点截取前 500 个字符", () => {
+  assert.equal(normalizeSelectionText("  hello world  "), "hello world");
+  assert.equal(normalizeSelectionText("   "), "");
+  assert.equal(normalizeSelectionText("a".repeat(600)).length, 500);
+  const cut = normalizeSelectionText("😀".repeat(600));
+  assert.equal(Array.from(cut).length, 500);
+  // 截断处不得留下落单的代理项（encodeURIComponent 遇到会抛错）。
+  assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(cut), false);
 });

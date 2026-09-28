@@ -6,12 +6,22 @@ const ACTION_LABELS = {
   native: "按浏览器原行为"
 };
 
+const SEARCH_ENGINE_LABELS = {
+  bing: "Bing",
+  google: "Google",
+  baidu: "百度"
+};
+
 function byId(id) {
   return document.getElementById(id);
 }
 
 const pageStatus = byId("page-status");
 const defaultActionSelect = byId("default-action");
+const searchEngineSelect = byId("search-engine");
+const toggleClick = byId("toggle-click");
+const toggleLinkDrag = byId("toggle-link-drag");
+const toggleTextDrag = byId("toggle-text-drag");
 
 /** 已加载的设置；读取失败时保持 null，页面控件保持禁用。 */
 let settings = null;
@@ -24,6 +34,14 @@ for (const select of document.querySelectorAll("select[data-action-select]")) {
     option.textContent = ACTION_LABELS[action];
     select.append(option);
   }
+}
+
+/** 搜索引擎下拉框由 LinkTabsRules.SEARCH_ENGINES 生成，界面不会出现解析器不支持的值。 */
+for (const engine of LinkTabsRules.SEARCH_ENGINES) {
+  const option = document.createElement("option");
+  option.value = engine;
+  option.textContent = SEARCH_ENGINE_LABELS[engine] || engine;
+  searchEngineSelect.append(option);
 }
 
 function showStatus(message, isError = false) {
@@ -41,6 +59,14 @@ function setControlsEnabled(enabled) {
 
 function withDefaultAction(current, action) {
   return { ...current, defaultAction: action };
+}
+
+function withSearchEngine(current, engine) {
+  return { ...current, searchEngine: engine };
+}
+
+function withSwitch(current, name, value) {
+  return { ...current, [name]: value };
 }
 
 function withAddedRule(current, kind, rule) {
@@ -87,6 +113,16 @@ async function persist(change) {
 }
 
 // ===== 规则列表控制器 =====
+
+/** 规则勾选的功能；三项全勾时不显示后缀。 */
+function describeRuleFunctions(rule) {
+  const labels = [];
+  if (rule.click) labels.push("点击");
+  if (rule.drag) labels.push("拖动");
+  if (rule.search) labels.push("搜索");
+  if (labels.length === 3) return "";
+  return `（仅${labels.join("、")}）`;
+}
 
 function createRuleController(config) {
   let editingId = null;
@@ -163,7 +199,7 @@ function createRuleController(config) {
       text.className = "rule-text";
       const value = document.createElement("span");
       value.className = "rule-value";
-      value.textContent = config.describe(rule);
+      value.textContent = config.describe(rule) + describeRuleFunctions(rule);
       const action = document.createElement("span");
       action.className = "rule-action";
       action.textContent = ACTION_LABELS[rule.action] || rule.action;
@@ -235,12 +271,18 @@ function createRuleController(config) {
 const domainFields = {
   input: byId("domain-input"),
   subdomains: byId("domain-subdomains"),
-  action: byId("domain-action")
+  action: byId("domain-action"),
+  click: byId("domain-click"),
+  drag: byId("domain-drag"),
+  search: byId("domain-search")
 };
 
 const urlFields = {
   pattern: byId("url-pattern"),
-  action: byId("url-action")
+  action: byId("url-action"),
+  click: byId("url-click"),
+  drag: byId("url-drag"),
+  search: byId("url-search")
 };
 
 const controllers = [
@@ -258,18 +300,27 @@ const controllers = [
       return {
         domain: domainFields.input.value.trim().toLowerCase(),
         includeSubdomains: domainFields.subdomains.checked,
-        action: domainFields.action.value
+        action: domainFields.action.value,
+        click: domainFields.click.checked,
+        drag: domainFields.drag.checked,
+        search: domainFields.search.checked
       };
     },
     apply(rule) {
       domainFields.input.value = rule.domain;
       domainFields.subdomains.checked = rule.includeSubdomains === true;
       domainFields.action.value = rule.action;
+      domainFields.click.checked = rule.click;
+      domainFields.drag.checked = rule.drag;
+      domainFields.search.checked = rule.search;
     },
     clear() {
       domainFields.input.value = "";
       domainFields.subdomains.checked = false;
       domainFields.action.value = "background";
+      domainFields.click.checked = true;
+      domainFields.drag.checked = true;
+      domainFields.search.checked = true;
     },
     focus() {
       domainFields.input.focus();
@@ -291,16 +342,25 @@ const controllers = [
       // 路径区分大小写，只去掉首尾空白。
       return {
         pattern: urlFields.pattern.value.trim(),
-        action: urlFields.action.value
+        action: urlFields.action.value,
+        click: urlFields.click.checked,
+        drag: urlFields.drag.checked,
+        search: urlFields.search.checked
       };
     },
     apply(rule) {
       urlFields.pattern.value = rule.pattern;
       urlFields.action.value = rule.action;
+      urlFields.click.checked = rule.click;
+      urlFields.drag.checked = rule.drag;
+      urlFields.search.checked = rule.search;
     },
     clear() {
       urlFields.pattern.value = "";
       urlFields.action.value = "background";
+      urlFields.click.checked = true;
+      urlFields.drag.checked = true;
+      urlFields.search.checked = true;
     },
     focus() {
       urlFields.pattern.focus();
@@ -315,6 +375,10 @@ const controllers = [
 
 function renderAll() {
   defaultActionSelect.value = settings.defaultAction;
+  searchEngineSelect.value = settings.searchEngine;
+  toggleClick.checked = settings.clickEnabled;
+  toggleLinkDrag.checked = settings.linkDragEnabled;
+  toggleTextDrag.checked = settings.textDragEnabled;
   for (const controller of controllers) controller.render();
 }
 
@@ -325,6 +389,25 @@ defaultActionSelect.addEventListener("change", async () => {
     defaultActionSelect.value = settings.defaultAction;
   }
 });
+
+searchEngineSelect.addEventListener("change", async () => {
+  const saved = await persist(current => withSearchEngine(current, searchEngineSelect.value));
+  if (!saved) {
+    searchEngineSelect.value = settings.searchEngine;
+  }
+});
+
+/** 绑定一个功能开关复选框；保存失败时恢复为存储中的值。 */
+function bindToggle(element, settingName) {
+  element.addEventListener("change", async () => {
+    const saved = await persist(current => withSwitch(current, settingName, element.checked));
+    if (!saved) element.checked = settings[settingName];
+  });
+}
+
+bindToggle(toggleClick, "clickEnabled");
+bindToggle(toggleLinkDrag, "linkDragEnabled");
+bindToggle(toggleTextDrag, "textDragEnabled");
 
 async function loadSettings() {
   try {

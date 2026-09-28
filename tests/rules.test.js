@@ -6,7 +6,9 @@ const {
   normalizeSettings,
   resolveAction,
   validateDomainRule,
-  validateUrlRule
+  validateUrlRule,
+  SEARCH_ENGINES,
+  buildSearchUrl
 } = require("../src/shared/rules.js");
 
 const base = { ...DEFAULT_SETTINGS, enabled: true };
@@ -313,7 +315,7 @@ test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
     ]
   });
   assert.deepEqual(normalized.urlRules, [
-    { pattern: "https://*.example.com/*", action: "native" }
+    { pattern: "https://*.example.com/*", action: "native", click: true, drag: true, search: true }
   ]);
 });
 
@@ -353,8 +355,8 @@ test("normalizeSettings 填充默认值并过滤无效规则", () => {
   });
   assert.equal(normalized.enabled, false);
   assert.equal(normalized.defaultAction, "background");
-  assert.deepEqual(normalized.domainRules, [{ domain: "example.com", includeSubdomains: false, action: "foreground" }]);
-  assert.deepEqual(normalized.urlRules, [{ pattern: "https://example.com/*", action: "native" }]);
+  assert.deepEqual(normalized.domainRules, [{ domain: "example.com", includeSubdomains: false, action: "foreground", click: true, drag: true, search: true }]);
+  assert.deepEqual(normalized.urlRules, [{ pattern: "https://example.com/*", action: "native", click: true, drag: true, search: true }]);
 });
 
 // ===== Task 3：设置页规则输入的边界校验 =====
@@ -527,4 +529,83 @@ test("校验失败给出可区分的具体原因", () => {
     errorOf(urlRule("https://example.com/*", "bogus"))
   ]);
   assert.equal(urlErrors.size, 7);
+});
+
+test("搜索引擎默认为 Bing 且非法取值回退", () => {
+  assert.equal(DEFAULT_SETTINGS.searchEngine, "bing");
+  assert.deepEqual(SEARCH_ENGINES, ["bing", "google", "baidu"]);
+  assert.equal(normalizeSettings({}).searchEngine, "bing");
+  assert.equal(normalizeSettings({ searchEngine: "baidu" }).searchEngine, "baidu");
+  assert.equal(normalizeSettings({ searchEngine: "duckduckgo" }).searchEngine, "bing");
+});
+test("按所选搜索引擎构造搜索网址并编码查询", () => {
+  assert.equal(buildSearchUrl("hello world", "bing"), "https://www.bing.com/search?q=hello%20world");
+  assert.equal(buildSearchUrl("中文&词", "google"), "https://www.google.com/search?q=" + encodeURIComponent("中文&词"));
+  assert.equal(buildSearchUrl("测试", "baidu"), "https://www.baidu.com/s?wd=" + encodeURIComponent("测试"));
+});
+
+// ===== 三块功能独立配置（点击链接 / 拖动链接 / 拖动文字搜索） =====
+
+test("三块功能开关各自独立", () => {
+  const settings = { ...base, urlRules: [{ pattern: "https://example.com/*", action: "foreground" }] };
+  // 关闭“点击链接”后点击不再拦截，拖动链接照常。
+  assert.equal(resolveAction("https://example.com/x", { ...settings, clickEnabled: false }, "click"), "native");
+  assert.equal(resolveAction("https://example.com/x", { ...settings, clickEnabled: false }, "drag"), "foreground");
+  // 关闭“拖动链接”后拖动不再拦截，点击照常。
+  assert.equal(resolveAction("https://example.com/x", { ...settings, linkDragEnabled: false }, "drag"), "native");
+  assert.equal(resolveAction("https://example.com/x", { ...settings, linkDragEnabled: false }, "click"), "foreground");
+  // 关闭“拖动文字搜索”后搜索按原行为处理，其他功能不受影响。
+  assert.equal(resolveAction("https://example.com/x", { ...settings, textDragEnabled: false }, "search"), "native");
+  assert.equal(resolveAction("https://example.com/x", { ...settings, textDragEnabled: false }, "click"), "foreground");
+});
+test("规则按功能勾选分别生效，搜索按当前页面匹配", () => {
+  const clickOnly = { pattern: "https://example.com/*", action: "native", click: true, drag: false, search: false };
+  const settings = { ...base, urlRules: [clickOnly] };
+  // 点击命中该规则 → 原行为；拖动与搜索不命中它 → 使用全局默认。
+  assert.equal(resolveAction("https://example.com/x", settings, "click"), "native");
+  assert.equal(resolveAction("https://example.com/x", settings, "drag"), "background");
+  assert.equal(resolveAction("https://example.com/x", settings, "search"), "background");
+  // 只勾选搜索的规则按“当前所在页面”生效。
+  const searchOnly = { pattern: "https://example.com/*", action: "native", click: false, drag: false, search: true };
+  assert.equal(resolveAction("https://example.com/page", { ...base, urlRules: [searchOnly] }, "search"), "native");
+  assert.equal(resolveAction("https://other.example/page", { ...base, urlRules: [searchOnly] }, "search"), "background");
+});
+test("旧规则缺少功能勾选时三项全开，全不勾的规则被丢弃", () => {
+  const normalized = normalizeSettings({
+    ...base,
+    urlRules: [
+      { pattern: "https://example.com/*", action: "native" },
+      { pattern: "https://off.example.com/*", action: "native", click: false, drag: false, search: false }
+    ]
+  });
+  assert.deepEqual(normalized.urlRules, [
+    { pattern: "https://example.com/*", action: "native", click: true, drag: true, search: true }
+  ]);
+  assert.equal(resolveAction("https://example.com/x", { ...base, urlRules: normalized.urlRules }, "drag"), "native");
+});
+test("功能勾选必须是布尔值且至少选择一项", () => {
+  assert.equal(validateUrlRule({ pattern: "https://example.com/*", action: "native", click: "yes", drag: true, search: true }).valid, false);
+  assert.equal(validateDomainRule({ domain: "example.com", includeSubdomains: false, action: "native", click: false, drag: false, search: false }).valid, false);
+  assert.equal(validateUrlRule({ pattern: "https://example.com/*", action: "native", click: false, drag: true, search: false }).valid, true);
+});
+test("未知的功能参数不拦截", () => {
+  assert.equal(resolveAction("https://example.com/", base, "bogus"), "native");
+});
+// 回归：1.1.0 形态的旧设置（无功能开关、无搜索项、规则无勾选）升级后行为与升级前一致。
+test("旧设置升级后点击与拖动行为不变", () => {
+  const legacy = {
+    enabled: true,
+    defaultAction: "background",
+    domainRules: [{ id: "d1", domain: "example.com", includeSubdomains: false, action: "native" }],
+    urlRules: [{ id: "u1", pattern: "https://example.com/private/*", action: "foreground" }]
+  };
+  const normalized = normalizeSettings(legacy);
+  assert.equal(normalized.clickEnabled, true);
+  assert.equal(normalized.linkDragEnabled, true);
+  assert.equal(normalized.textDragEnabled, true);
+  assert.equal(normalized.searchEngine, "bing");
+  assert.equal(resolveAction("https://example.com/", normalized, "click"), "native");
+  assert.equal(resolveAction("https://example.com/", normalized, "drag"), "native");
+  assert.equal(resolveAction("https://example.com/private/a", normalized, "click"), "foreground");
+  assert.equal(resolveAction("https://example.com/private/a", normalized, "drag"), "foreground");
 });

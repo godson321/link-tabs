@@ -16,6 +16,27 @@ function shouldArmDrag({ trusted, sourceIsLink, dragTypes, modifierPressed }) {
 }
 
 /**
+ * 判断一次 dragstart 是否武装“拖动选中文字去搜索”。
+ * 条件：用户真实拖拽、选中内容可搜索（非空、来源不在输入框/编辑器内、
+ * 且拖动源落在选区里）、携带 text/plain、未按任何修饰键。
+ */
+function shouldArmSearchDrag({ trusted, sourceIsSearchable, dragTypes, modifierPressed }) {
+  return trusted === true &&
+    sourceIsSearchable === true &&
+    Array.isArray(dragTypes) &&
+    dragTypes.includes("text/plain") &&
+    modifierPressed !== true;
+}
+
+/** 搜索文本上限：足够覆盖正常选段，又不会产生超长网址。 */
+const SELECTION_TEXT_LIMIT = 500;
+
+/** 修剪选中的文本并按码点截取上限；截断不拆开代理对（emoji 等），避免编码时抛错。 */
+function normalizeSelectionText(text) {
+  return Array.from(text.trim()).slice(0, SELECTION_TEXT_LIMIT).join("");
+}
+
+/**
  * 判断一次 dragend 是否应打开链接。
  * 条件：页面内没有放置区接收（dropHandled）、拖拽未被取消（cancelled）、
  * 松手时不在内嵌框架上（endedOverFrame，框架内是否接收无法确认，保守放弃）、
@@ -31,7 +52,7 @@ function shouldOpenOnRelease(
   return clientX >= 0 && clientY >= 0 && clientX <= viewportWidth && clientY <= viewportHeight;
 }
 
-const LinkTabsDrag = { shouldArmDrag, shouldOpenOnRelease };
+const LinkTabsDrag = { shouldArmDrag, shouldArmSearchDrag, normalizeSelectionText, shouldOpenOnRelease };
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = LinkTabsDrag;

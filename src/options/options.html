@@ -10,7 +10,7 @@
     <header class="page-header">
       <h1>后台新标签页</h1>
       <p class="subtitle">
-        普通左键点击链接时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关在工具栏弹窗中。
+        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关在工具栏弹窗中。
       </p>
     </header>
 
@@ -21,6 +21,31 @@
       <div class="field">
         <label for="default-action">没有规则命中时</label>
         <select id="default-action" data-action-select></select>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>功能开关</h2>
+      <div class="field field-checkbox">
+        <input id="toggle-click" type="checkbox">
+        <label for="toggle-click">左键点击链接</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="toggle-link-drag" type="checkbox">
+        <label for="toggle-link-drag">拖动链接到页面空白处松手</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="toggle-text-drag" type="checkbox">
+        <label for="toggle-text-drag">拖动选中的文字到页面空白处松手（搜索）</label>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>搜索引擎</h2>
+      <p class="hint">拖动选中的文字搜索时使用的搜索引擎。</p>
+      <div class="field">
+        <label for="search-engine">搜索引擎</label>
+        <select id="search-engine"></select>
       </div>
     </section>
 
@@ -40,6 +65,19 @@
         <div class="field">
           <label for="domain-action">动作</label>
           <select id="domain-action" data-action-select></select>
+        </div>
+        <p class="hint">这条规则作用于：</p>
+        <div class="field field-checkbox">
+          <input id="domain-click" type="checkbox">
+          <label for="domain-click">点击链接</label>
+        </div>
+        <div class="field field-checkbox">
+          <input id="domain-drag" type="checkbox">
+          <label for="domain-drag">拖动链接</label>
+        </div>
+        <div class="field field-checkbox">
+          <input id="domain-search" type="checkbox">
+          <label for="domain-search">拖动文字搜索（按当前页面匹配）</label>
         </div>
         <div class="form-actions">
           <button type="submit" id="domain-submit">添加规则</button>
@@ -62,6 +100,19 @@
         <div class="field">
           <label for="url-action">动作</label>
           <select id="url-action" data-action-select></select>
+        </div>
+        <p class="hint">这条规则作用于：</p>
+        <div class="field field-checkbox">
+          <input id="url-click" type="checkbox">
+          <label for="url-click">点击链接</label>
+        </div>
+        <div class="field field-checkbox">
+          <input id="url-drag" type="checkbox">
+          <label for="url-drag">拖动链接</label>
+        </div>
+        <div class="field field-checkbox">
+          <input id="url-search" type="checkbox">
+          <label for="url-search">拖动文字搜索（按当前页面匹配）</label>
         </div>
         <div class="form-actions">
           <button type="submit" id="url-submit">添加规则</button>
