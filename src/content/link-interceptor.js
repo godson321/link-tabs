@@ -2,8 +2,10 @@
 
 let currentSettings;
 
-function isSameDocumentFragment(target) {
-  return Boolean(target.hash) &&
+function isSameDocumentFragment(target, anchor) {
+  const href = anchor.getAttribute("href");
+  const fragmentOnly = href !== null && href.trimStart().startsWith("#");
+  return (Boolean(target.hash) || fragmentOnly) &&
     target.origin === location.origin &&
     target.pathname === location.pathname &&
     target.search === location.search;
@@ -38,7 +40,8 @@ document.addEventListener("click", event => {
   if (
     !anchor ||
     anchor.hasAttribute("download") ||
-    anchor.closest('[contenteditable="true"]')
+    anchor.isContentEditable ||
+    document.designMode === "on"
   ) return;
 
   let target;
@@ -50,7 +53,7 @@ document.addEventListener("click", event => {
 
   if (
     !["http:", "https:"].includes(target.protocol) ||
-    isSameDocumentFragment(target)
+    isSameDocumentFragment(target, anchor)
   ) return;
 
   const action = LinkTabsRules.resolveAction(target.href, currentSettings);
