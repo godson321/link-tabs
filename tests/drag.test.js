@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { shouldArmDrag, shouldArmSearchDrag, shouldOpenOnRelease, normalizeSelectionText } = require("../src/shared/drag.js");
+const { shouldArmDrag, shouldArmSearchDrag, shouldOpenOnRelease, normalizeSelectionText, pickDropEffect, pickDragOverEffect } = require("../src/shared/drag.js");
 
 const armedDrag = {
   trusted: true,
@@ -85,4 +85,40 @@ test("选取文本做修剪并按码点截取前 500 个字符", () => {
   assert.equal(Array.from(cut).length, 500);
   // 截断处不得留下落单的代理项（encodeURIComponent 遇到会抛错）。
   assert.equal(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(cut), false);
+});
+
+test("按拖拽源允许的效果挑一个兼容的 dropEffect", () => {
+  // 目标必须把 dropEffect 设为 effectAllowed 允许的值，否则浏览器仍显示“禁止”光标。
+  assert.equal(pickDropEffect("copy"), "copy");
+  assert.equal(pickDropEffect("copyMove"), "copy");
+  assert.equal(pickDropEffect("copyLink"), "copy");
+  assert.equal(pickDropEffect("all"), "copy");
+  assert.equal(pickDropEffect("link"), "link");
+  assert.equal(pickDropEffect("linkMove"), "link");
+  assert.equal(pickDropEffect("move"), "move");
+  // 取值缺失或未知时按“源未限定”处理（规范中 uninitialized 允许目标自选），用最通用的 copy；
+  // 只有源明确禁止拖放（none）才不干预。
+  assert.equal(pickDropEffect("uninitialized"), "copy");
+  assert.equal(pickDropEffect(undefined), "copy");
+  assert.equal(pickDropEffect(""), "copy");
+  assert.equal(pickDropEffect("none"), null);
+});
+
+const hover = { armed: true, defaultPrevented: false, nativeDropTarget: false, effectAllowed: "copyMove" };
+test("空白处悬停时由扩展声明接受拖放，并挑出兼容的 dropEffect", () => {
+  assert.equal(pickDragOverEffect(hover), "copy");
+  assert.equal(pickDragOverEffect({ ...hover, effectAllowed: "link" }), "link");
+  assert.equal(pickDragOverEffect({ ...hover, effectAllowed: "move" }), "move");
+});
+test("网站接管、原生放置区、未武装或源禁止拖放时都不干预", () => {
+  // 网站自己 preventDefault 了 dragover：它的光标与放置逻辑优先。
+  assert.equal(pickDragOverEffect({ ...hover, defaultPrevented: true }), null);
+  // 浏览器原生放置区（输入框、可编辑区域）：保持原生插入与光标。
+  assert.equal(pickDragOverEffect({ ...hover, nativeDropTarget: true }), null);
+  assert.equal(pickDragOverEffect({ ...hover, armed: false }), null);
+  // 源明确禁止拖放（none）：接受也没有意义，保持浏览器原有表现；
+  // 取值缺失按“源未限定”处理，照常接受。
+  assert.equal(pickDragOverEffect({ ...hover, effectAllowed: "none" }), null);
+  assert.equal(pickDragOverEffect({ ...hover, effectAllowed: undefined }), "copy");
+  assert.equal(pickDragOverEffect({}), null);
 });

@@ -115,13 +115,38 @@ document.addEventListener("click", event => {
 let draggedTarget = null;      // 已武装的拖拽目标：{ kind: "link", href } 或 { kind: "search", text }
 let dragDropHandled = false;   // 页面内的放置区已接收本次拖放
 let dragCancelled = false;     // 拖拽中窗口失焦（拖拽被系统取消）
-let lastDragOverFrame = false; // 最近一次拖拽悬停的目标是内嵌框架
+let dragOverClaim = null;      // 扩展为哪个元素声明了“接受拖放”（只有扩展认领的位置才有值）
+
+/** 悬停/落点是否由浏览器原生接收拖放（文本输入框、可编辑区域；含 shadow DOM 内部）。 */
+function findNativeDropTarget(event) {
+  const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+  for (const node of path) {
+    if (node instanceof Element &&
+      (node.isContentEditable || node.tagName === "INPUT" || node.tagName === "TEXTAREA")) {
+      return node;
+    }
+  }
+  const target = event.target instanceof Element ? event.target : null;
+  if (target !== null && (target.isContentEditable || target.closest("input, textarea") !== null)) {
+    return target;
+  }
+  return null;
+}
+
+/** 松手点是否落在内嵌框架上（父文档收不到框架内部的拖拽事件，只能按坐标判断）。 */
+function endedOverFrame(event) {
+  try {
+    return document.elementFromPoint(event.clientX, event.clientY) instanceof HTMLIFrameElement;
+  } catch {
+    return false;
+  }
+}
 
 document.addEventListener("dragstart", event => {
   draggedTarget = null;
   dragDropHandled = false;
   dragCancelled = false;
-  lastDragOverFrame = false;
+  dragOverClaim = null;
   if (currentSettings === undefined) return;
 
   // 选区拖拽时 dragstart 的目标可能是文本节点而非元素，向上取到其所属元素；
@@ -167,16 +192,44 @@ document.addEventListener("dragstart", event => {
   draggedTarget = { kind: "link", href: target.href };
 }, true);
 
-const trackDragTarget = event => {
+// 拖拽悬停：网站自己接管了拖放、或悬停在浏览器原生放置区（输入框、编辑器）时保持原生；
+// 其余位置由扩展声明“接受拖放”。浏览器只在有目标接受拖放时才不画禁止光标，
+// 所以拖动链接/文字经过页面空白处时，光标由禁止符号变成可放置样式。
+// 监听挂在 window 冒泡阶段：此时网站的 dragover 处理器都已执行，
+// defaultPrevented 能如实反映“网站是否已经接管”。
+window.addEventListener("dragover", event => {
   if (draggedTarget === null) return;
-  lastDragOverFrame = event.target instanceof HTMLIFrameElement;
-};
-document.addEventListener("dragenter", trackDragTarget, true);
-document.addEventListener("dragover", trackDragTarget, true);
+  const target = event.target instanceof Element ? event.target : null;
+  const effect = LinkTabsDrag.pickDragOverEffect({
+    armed: true,
+    defaultPrevented: event.defaultPrevented,
+    nativeDropTarget: findNativeDropTarget(event) !== null,
+    effectAllowed: event.dataTransfer?.effectAllowed
+  });
+  // 只有扩展认领的位置才留下标记；落点与标记不符，说明这次拖放不是扩展接下的。
+  dragOverClaim = effect === null ? null : target;
+  if (effect === null) return;
 
-document.addEventListener("drop", () => {
-  // 页面内的放置区（编辑器、上传框等）接收了这次拖放，保持原生。
-  if (draggedTarget !== null) dragDropHandled = true;
+  event.preventDefault();
+  if (event.dataTransfer) event.dataTransfer.dropEffect = effect;
+});
+
+// 拖放落地：只有扩展认领的那一次（页面空白处）才取消浏览器默认动作（防导航），
+// 是否开新标签页交给 dragend 决定；其余情况（网站放置区、浏览器原生输入框/编辑器）
+// 一律保持原生行为，包括把文本原生插入输入框。
+// 归属按“落点是不是扩展认领的那个元素”判断，而不是“扩展有没有看见过 dragover”：
+// 网站用 stopPropagation 接管 dragover 时扩展根本收不到事件，按后者会把网站放置区误判成空白处。
+// 只认完全相同的元素、不做祖先/后代包含判断：认领元素往往是 body/html 这类容器，
+// 它们包含页面里几乎所有放置区，按包含判断会把网站放置区误认成空白处。
+// 指针只要移动过，浏览器就会派发新的 dragover 刷新认领，因此合法落地必然与认领元素相同。
+document.addEventListener("drop", event => {
+  if (draggedTarget === null) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (dragOverClaim === null || dragOverClaim !== target || findNativeDropTarget(event) !== null) {
+    dragDropHandled = true;
+    return;
+  }
+  event.preventDefault();
 }, true);
 
 window.addEventListener("blur", () => {
@@ -191,7 +244,7 @@ document.addEventListener("dragend", event => {
   const open = LinkTabsDrag.shouldOpenOnRelease({
     dropHandled: dragDropHandled,
     cancelled: dragCancelled,
-    endedOverFrame: lastDragOverFrame,
+    endedOverFrame: endedOverFrame(event),
     endTrusted: event.isTrusted,
     clientX: event.clientX,
     clientY: event.clientY

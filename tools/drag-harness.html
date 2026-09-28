@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>拖拽接线测试台</title>
+<style>
+  body { font-family: "Segoe UI", "Microsoft YaHei", sans-serif; margin: 16px; }
+  table { border-collapse: collapse; font-size: 13px; }
+  th, td { border: 1px solid #ccc; padding: 4px 8px; text-align: left; vertical-align: top; }
+  .pass { color: #0a7a2f; font-weight: 600; }
+  .fail { color: #b3261e; font-weight: 600; }
+  .box { height: 34px; margin: 6px 0; padding: 4px 8px; }
+  #blank, #blank2 { background: #eef; }
+  #zone { background: #efe; }
+  #zone-stop { background: #ffe; }
+  #editable { background: #f6e; min-height: 34px; }
+</style>
+</head>
+<body>
+<h1>拖拽接线测试台</h1>
+<p>
+  用合成拖拽事件验证 <code>src/content/link-interceptor.js</code> 的悬停 / 落地接线：
+  扩展是否只在页面空白处声明"接受拖放"（光标由禁止符号变为可放置样式），
+  以及是否保住了网站放置区与浏览器原生输入框的原有行为。
+</p>
+<p>
+  <strong>能力边界：</strong>本测试台只能验证事件接线与状态记账（谁 preventDefault、写了什么 dropEffect、拖放归属）。
+  它<strong>不能</strong>验证光标实际长什么样、浏览器是否导航、原生插入是否真的发生——那三项只能在真实浏览器里手动拖动确认。
+  另外，合成 <code>DataTransfer</code> 不参与真实拖拽，浏览器既不维护 <code>effectAllowed</code> 也不接受 <code>dropEffect</code> 赋值，
+  因此这里用属性探针模拟浏览器提供的 <code>effectAllowed</code>，并记录扩展往 <code>dropEffect</code> 写入的值。
+</p>
+<div id="blank" class="box">空白区域 A（div）</div>
+<div id="blank2" class="box">空白区域 B（div，与 A 互不包含）</div>
+<div id="zone" class="box">网站放置区（dragover: preventDefault）</div>
+<div id="wrap" class="box">父容器（页面背景的常见形态：认领它之后，其内部的放置区仍须判为页面接收）
+  <div id="zone-stop" class="box">网站放置区（dragover: preventDefault + stopPropagation）</div>
+</div>
+<input id="field" class="box" value="输入框">
+<div id="editable" class="box" contenteditable="true">可编辑区域（contenteditable）</div>
+<iframe id="frame" srcdoc="<p>frame</p>" style="width:220px;height:40px;border:1px solid #ccc"></iframe>
+<pre id="out"></pre>
+<table id="results"><thead><tr><th>序号</th><th>场景</th><th>期望</th><th>实际</th><th>结果</th></tr></thead><tbody></tbody></table>
+
+<script>
+// 模拟扩展 API，让内容脚本能在普通页面里加载。
+window.chrome = {
+  runtime: { id: "test-extension", sendMessage: async () => ({ ok: true }) },
+  storage: {
+    local: { get: async () => ({ settings: undefined }), set: async () => {} },
+    onChanged: { addListener: () => {} }
+  }
+};
+</script>
+<script src="../src/shared/rules.js"></script>
+<script src="../src/shared/settings.js"></script>
+<script src="../src/shared/drag.js"></script>
+<script src="../src/content/link-interceptor.js"></script>
+<script>
+const blank = document.getElementById("blank");
+const blank2 = document.getElementById("blank2");
+const zone = document.getElementById("zone");
+const wrap = document.getElementById("wrap");
+const zoneStop = document.getElementById("zone-stop");
+const field = document.getElementById("field");
+const editable = document.getElementById("editable");
+const frame = document.getElementById("frame");
+
+// 模拟网站自己接管拖放：常见写法是 preventDefault；防御性写法还会 stopPropagation。
+zone.addEventListener("dragover", event => {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+});
+zone.addEventListener("drop", event => { event.preventDefault(); });
+zoneStop.addEventListener("dragover", event => {
+  event.preventDefault();
+  event.stopPropagation();
+});
+zoneStop.addEventListener("drop", event => { event.preventDefault(); event.stopPropagation(); });
+
+function resetDrag() {
+  draggedTarget = { kind: "link", href: "https://example.com/" };
+  dragDropHandled = false;
+  dragCancelled = false;
+  dragOverClaim = null;
+}
+
+function makeTransfer(effectAllowed) {
+  const transfer = new DataTransfer();
+  Object.defineProperty(transfer, "effectAllowed", {
+    configurable: true,
+    get: () => effectAllowed,
+    set: () => {}
+  });
+  let assigned = null;
+  Object.defineProperty(transfer, "dropEffect", {
+    configurable: true,
+    get: () => "none",
+    set: value => { assigned = value; }
+  });
+  transfer.__assigned = () => assigned;
+  return transfer;
+}
+
+function fire(type, target, effectAllowed) {
+  const transfer = makeTransfer(effectAllowed);
+  const event = new DragEvent(type, { bubbles: true, cancelable: true, dataTransfer: transfer });
+  target.dispatchEvent(event);
+  return {
+    prevented: event.defaultPrevented,
+    assigned: transfer.__assigned(),
+    claimIsTarget: dragOverClaim === target,
+    claim: dragOverClaim === null ? null : (dragOverClaim.id || dragOverClaim.tagName),
+    dropHandled: dragDropHandled
+  };
+}
+
+const rows = [];
+function check(name, expected, actual) {
+  rows.push({ name, expected, actual, pass: JSON.stringify(expected) === JSON.stringify(actual) });
+}
+const pick = (result, keys) => Object.fromEntries(keys.map(key => [key, result[key]]));
+
+// 1. 空白处悬停：扩展声明接受拖放，写入兼容的 dropEffect，并把该元素记为“认领”。
+resetDrag();
+let r = fire("dragover", blank, "copyMove");
+check("空白处悬停（effectAllowed=copyMove）", { prevented: true, assigned: "copy", claimIsTarget: true },
+  pick(r, ["prevented", "assigned", "claimIsTarget"]));
+
+// 2. 空白处落地：取消浏览器默认动作（防导航），且不标记为“页面已接收”。
+resetDrag();
+fire("dragover", blank, "copyMove");
+r = fire("drop", blank, "copyMove");
+check("空白处落地（落点=认领元素）", { prevented: true, dropHandled: false },
+  pick(r, ["prevented", "dropHandled"]));
+
+// 3. 网站放置区悬停：不覆盖网站选定的 dropEffect，也不认领该位置。
+resetDrag();
+r = fire("dragover", zone, "copyMove");
+check("网站放置区悬停（不覆盖网站的 move）", { prevented: true, assigned: "move", claim: null },
+  pick(r, ["prevented", "assigned", "claim"]));
+
+// 4. 网站放置区落地：标记为“页面已接收”，不开标签页。
+resetDrag();
+fire("dragover", zone, "copyMove");
+r = fire("drop", zone, "copyMove");
+check("网站放置区落地", { dropHandled: true }, pick(r, ["dropHandled"]));
+
+// 5. 输入框完整流程：drop 不得被扩展取消（否则原生插入文本会被吞掉），且不开标签页。
+resetDrag();
+fire("dragenter", field, "copyMove");
+fire("dragover", field, "copyMove");
+r = fire("drop", field, "copyMove");
+check("输入框：悬停 + 落地", { prevented: false, dropHandled: true },
+  pick(r, ["prevented", "dropHandled"]));
+
+// 6. 可编辑区域完整流程：同上。
+resetDrag();
+fire("dragenter", editable, "copyMove");
+fire("dragover", editable, "copyMove");
+r = fire("drop", editable, "copyMove");
+check("可编辑区域：悬停 + 落地", { prevented: false, dropHandled: true },
+  pick(r, ["prevented", "dropHandled"]));
+
+// 7. 网站用 stopPropagation 接管 dragover（扩展收不到悬停事件）：不应认领，落地须判为“页面已接收”。
+resetDrag();
+r = fire("dragover", zoneStop, "copyMove");
+const claimAfterSwallowedHover = r.claim;
+r = fire("drop", zoneStop, "copyMove");
+check("stopPropagation 接管的放置区：悬停 + 落地", { claim: null, dropHandled: true },
+  { claim: claimAfterSwallowedHover, dropHandled: r.dropHandled });
+
+// 8. 认领父容器（页面背景的常见形态）后落到其内部的 stopPropagation 放置区：
+//    认领元素与落点不是同一个元素，不得按包含关系认成空白处。
+resetDrag();
+fire("dragover", wrap, "copyMove");
+r = fire("drop", zoneStop, "copyMove");
+check("认领父容器后落到其内部放置区", { dropHandled: true }, pick(r, ["dropHandled"]));
+
+// 9. 空白处悬停后又移到网站放置区落地：认领已失效，按“页面已接收”处理。
+resetDrag();
+fire("dragover", blank, "copyMove");
+r = fire("drop", zone, "copyMove");
+check("认领后改在网站放置区落地", { dropHandled: true }, pick(r, ["dropHandled"]));
+
+// 10. 落点与认领元素不同（中间没有悬停事件）：保守视为页面接收，不额外开标签页。
+resetDrag();
+fire("dragover", blank, "copyMove");
+r = fire("drop", blank2, "copyMove");
+check("落点与认领元素不同", { dropHandled: true }, pick(r, ["dropHandled"]));
+
+// 11. effectAllowed=none：源禁止拖放，不认领、不干预。
+resetDrag();
+r = fire("dragover", blank, "none");
+check("空白处悬停但源禁止拖放（none）", { prevented: false, claim: null },
+  pick(r, ["prevented", "claim"]));
+
+// 12. 未武装的拖拽（不是扩展管理的链接/文字拖拽）：完全不干预。
+draggedTarget = null;
+r = fire("dragover", blank, "copyMove");
+check("未武装的拖拽悬停", { prevented: false }, pick(r, ["prevented"]));
+
+// 13/14. 松手点是否在内嵌框架上：dragend 用 elementFromPoint 按坐标判断
+// （父文档收不到框架内部的拖拽事件，无法靠事件目标判断）。
+const frameRect = frame.getBoundingClientRect();
+const blankRect = blank.getBoundingClientRect();
+check("落点在内嵌框架上", { overFrame: true }, {
+  overFrame: endedOverFrame({ clientX: frameRect.left + frameRect.width / 2, clientY: frameRect.top + frameRect.height / 2 })
+});
+check("落点在页面空白处", { overFrame: false }, {
+  overFrame: endedOverFrame({ clientX: blankRect.left + 5, clientY: blankRect.top + 5 })
+});
+
+const tbody = document.querySelector("#results tbody");
+rows.forEach((row, index) => {
+  const tr = document.createElement("tr");
+  [String(index + 1), row.name, JSON.stringify(row.expected), JSON.stringify(row.actual)].forEach(text => {
+    const td = document.createElement("td");
+    td.textContent = text;
+    tr.append(td);
+  });
+  const verdict = document.createElement("td");
+  verdict.textContent = row.pass ? "通过" : "失败";
+  verdict.className = row.pass ? "pass" : "fail";
+  tr.append(verdict);
+  tbody.append(tr);
+});
+const failed = rows.filter(row => !row.pass).length;
+document.getElementById("out").textContent = failed === 0
+  ? "全部通过（" + rows.length + " 项）—— 注意：光标外观、导航抑制、原生插入三项需在真实浏览器手动确认"
+  : "失败 " + failed + " 项";
+</script>
+</body>
+</html>

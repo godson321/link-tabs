@@ -52,7 +52,49 @@ function shouldOpenOnRelease(
   return clientX >= 0 && clientY >= 0 && clientX <= viewportWidth && clientY <= viewportHeight;
 }
 
-const LinkTabsDrag = { shouldArmDrag, shouldArmSearchDrag, normalizeSelectionText, shouldOpenOnRelease };
+/**
+ * 为拖拽悬停挑一个与拖拽源允许效果（effectAllowed）兼容的 dropEffect。
+ * 目标必须把 dropEffect 设为 effectAllowed 允许的值，否则浏览器仍会显示“禁止”光标；
+ * 返回 null 表示源明确禁止拖放（none），此时接受也没有意义、不干预。
+ * 其余取值（copy/copyLink/copyMove/all/link/linkMove/move/uninitialized，以及取值缺失）
+ * 都挑一个兼容的效果；无法确定时用最通用的 copy。
+ */
+function pickDropEffect(effectAllowed) {
+  switch (effectAllowed) {
+    case "none":
+      return null;
+    case "link":
+    case "linkMove":
+      return "link";
+    case "move":
+      return "move";
+    default:
+      return "copy";
+  }
+}
+
+/**
+ * 拖拽悬停时，扩展是否该为当前位置声明“接受拖放”，以及要设置的 dropEffect。
+ * 浏览器只在有目标接受拖放时才不画禁止光标，因此页面空白处需要由扩展顶上。
+ * 以下情况一律返回 null（不干预，保持各自原有的光标与行为）：
+ * 未武装的拖拽、网站已接管的拖放（defaultPrevented）、浏览器原生放置区
+ * （输入框、可编辑区域），以及拖拽源禁止拖放（none，此时接受也没有意义）。
+ */
+function pickDragOverEffect({ armed, defaultPrevented, nativeDropTarget, effectAllowed }) {
+  if (armed !== true || defaultPrevented === true || nativeDropTarget === true) {
+    return null;
+  }
+  return pickDropEffect(effectAllowed);
+}
+
+const LinkTabsDrag = {
+  shouldArmDrag,
+  shouldArmSearchDrag,
+  normalizeSelectionText,
+  shouldOpenOnRelease,
+  pickDropEffect,
+  pickDragOverEffect
+};
 
 if (typeof module !== "undefined" && module.exports) {
   module.exports = LinkTabsDrag;
