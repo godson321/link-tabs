@@ -35,9 +35,8 @@ test("拒绝主机名、端口或 IPv6 非法的网址规则", () => {
   for (const pattern of [
     "https://exa mple.com/*",
     "https://example.com:bad/*",
-    "https://example.com:65536*/*",
-    "https://[invalid]/*",
-    "https://[invalid*]/*"
+    "https://example.com:65536/*",
+    "https://[invalid]/*"
   ]) {
     assert.equal(validateUrlRule({ pattern, action: "background" }).valid, false, pattern);
   }
@@ -51,6 +50,40 @@ test("网址规则接受合法主机、端口与通配符", () => {
   ]) {
     assert.equal(validateUrlRule({ pattern, action: "background" }).valid, true, pattern);
   }
+});
+test("星号可提供 IPv6 authority 所需的方括号", () => {
+  const pattern = "https://*::1*/*";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://[::1]/x", {
+    ...base,
+    urlRules: [{ pattern, action: "native" }]
+  }), "native");
+
+  // The star can supply userinfo's @ and an IPv6 bracket, making this a valid
+  // URL expansion even though the literal-only authority would be malformed.
+  const expandedPattern = "https://[invalid*]/*";
+  assert.equal(validateUrlRule({ pattern: expandedPattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://[invalid@[::]/x", {
+    ...base,
+    urlRules: [{ pattern: expandedPattern, action: "native" }]
+  }), "native");
+});
+test("星号可提供 authority 中的 @ 分隔符", () => {
+  const pattern = "https://user:*example.com/*";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://user:@example.com/x", {
+    ...base,
+    urlRules: [{ pattern, action: "native" }]
+  }), "native");
+});
+test("星号可将非法端口字面变为 userinfo，固定非法端口仍拒绝", () => {
+  const wildcardPattern = "https://example.com:65536*/*";
+  assert.equal(validateUrlRule({ pattern: wildcardPattern, action: "foreground" }).valid, true);
+  assert.equal(resolveAction("https://example.com:65536@foo/x", {
+    ...base,
+    urlRules: [{ pattern: wildcardPattern, action: "foreground" }]
+  }), "foreground");
+  assert.equal(validateUrlRule({ pattern: "https://example.com:65536/*", action: "foreground" }).valid, false);
 });
 test("网址规则支持独立通配符形成合法的普通主机和 userinfo", () => {
   for (const pattern of [

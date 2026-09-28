@@ -76,12 +76,12 @@ function addNfaState(nfa) {
   return nfa.edges.length - 1;
 }
 
-function addNfaEdge(nfa, from, to, type = null, value = null, structural = false) {
-  nfa.edges[from].push({ to, type, value, structural });
+function addNfaEdge(nfa, from, to, type = null, value = null) {
+  nfa.edges[from].push({ to, type, value });
 }
 
-function addNfaLiteral(nfa, from, to, value, structural = false) {
-  addNfaEdge(nfa, from, to, "literal", value, structural);
+function addNfaLiteral(nfa, from, to, value) {
+  addNfaEdge(nfa, from, to, "literal", value);
 }
 
 function addIpv6Hextet(nfa, from, to) {
@@ -195,7 +195,8 @@ function findGlobWitness(pattern, nfa, options = {}) {
       if (edge.type === null) {
         enqueue(node.patternIndex, edge.to, nodeIndex, "", node.usedWildcard, node.hexCount);
       } else if (patternCharacter === "*") {
-        if (edge.structural) continue;
+        // A glob star may supply any character; the NFA path and URL parser,
+        // not the pattern's literal delimiters, determine authority validity.
         if (options.percentOnly && !(edge.type === "hex" || (edge.type === "literal" && edge.value === "%"))) continue;
         const output = edge.type === "hex"
           ? hexSequence[node.hexCount % hexSequence.length]
@@ -256,7 +257,7 @@ function copyNfaInto(target, source) {
   for (let index = 0; index < source.edges.length; index += 1) addNfaState(target);
   for (let state = 0; state < source.edges.length; state += 1) {
     for (const edge of source.edges[state]) {
-      addNfaEdge(target, state + offset, edge.to + offset, edge.type, edge.value, edge.structural);
+      addNfaEdge(target, state + offset, edge.to + offset, edge.type, edge.value);
     }
   }
   return { start: source.start + offset, accept: source.accept + offset };
@@ -265,7 +266,7 @@ function copyNfaInto(target, source) {
 function addAuthorityPort(nfa, hostEnd, accept) {
   const portStart = addNfaState(nfa);
   addNfaEdge(nfa, hostEnd, accept);
-  addNfaLiteral(nfa, hostEnd, portStart, ":", true);
+  addNfaLiteral(nfa, hostEnd, portStart, ":");
   addNfaEdge(nfa, portStart, accept); // Empty ports are valid URL authority expansions.
   addNfaEdge(nfa, portStart, portStart, "zeroDigit");
 
@@ -300,7 +301,7 @@ function createAuthorityNfa() {
   addNfaEdge(nfa, start, hostStart);
   addNfaEdge(nfa, start, userinfoStart);
   addNfaEdge(nfa, userinfoStart, userinfoStart, "userinfo");
-  addNfaLiteral(nfa, userinfoStart, hostStart, "@", true);
+  addNfaLiteral(nfa, userinfoStart, hostStart, "@");
 
   const domain = copyNfaInto(nfa, DOMAIN_HOST_NFA);
   addNfaEdge(nfa, hostStart, domain.start);
@@ -308,8 +309,8 @@ function createAuthorityNfa() {
 
   const ipv6 = copyNfaInto(nfa, IPV6_NFA);
   const bracketEnd = addNfaState(nfa);
-  addNfaLiteral(nfa, hostStart, ipv6.start, "[", true);
-  addNfaLiteral(nfa, ipv6.accept, bracketEnd, "]", true);
+  addNfaLiteral(nfa, hostStart, ipv6.start, "[");
+  addNfaLiteral(nfa, ipv6.accept, bracketEnd, "]");
   addAuthorityPort(nfa, bracketEnd, accept);
 
   return { edges: nfa.edges, start, accept };
@@ -494,12 +495,18 @@ function resolveAction(url, settings) {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "native";
 
   const target = normalizeUrlForMatch(parsed.href);
+  // Keep the validated source spelling too: URL serialization drops valid
+  // syntax such as an empty password's colon, which a glob may intentionally match.
+  const rawTarget = typeof url === "string" ? normalizeUrlForMatch(url) : null;
   if (target === null) return "native";
 
   for (const rule of normalized.urlRules) {
     const pattern = normalizeUrlForMatch(rule.pattern);
-    if (pattern !== null && compileWildcard(pattern).test(target)) {
-      return rule.action;
+    if (pattern !== null) {
+      const matcher = compileWildcard(pattern);
+      if (matcher.test(target) || (rawTarget !== null && matcher.test(rawTarget))) {
+        return rule.action;
+      }
     }
   }
 
