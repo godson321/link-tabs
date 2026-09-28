@@ -536,6 +536,40 @@ function buildSearchUrl(text, settings) {
 }
 
 /**
+ * 从 TIM 卡片跳转链接（`ssl.ptlogin2.qq.com/jump?...&u1=...`）中解出真实目标地址。
+ * `u1` 是编码后的目标网址：URLSearchParams 已解码一次，这里再兼容双重编码的形态；
+ * 目标必须是 http(s) 地址，其余情况一律返回 null（不改动原网址）。
+ */
+function decodeTimJumpUrl(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.hostname !== "ssl.ptlogin2.qq.com" || parsed.pathname !== "/jump") return null;
+
+  const raw = parsed.searchParams.get("u1");
+  if (raw === null || raw === "") return null;
+
+  const candidates = [raw];
+  try {
+    candidates.push(decodeURIComponent(raw));
+  } catch {
+    // 非法百分号编码：只保留原始候选。
+  }
+  for (const candidate of candidates) {
+    try {
+      const target = new URL(candidate);
+      if (target.protocol === "http:" || target.protocol === "https:") return target.href;
+    } catch {
+      // 该候选不是合法地址，尝试下一个。
+    }
+  }
+  return null;
+}
+
+/**
  * 域名边界匹配：完整相等，或（启用 includeSubdomains 时）以 `.domain` 结尾。
  * 不会误匹配相似后缀，例如 `notexample.com`。
  */
@@ -600,7 +634,8 @@ const LinkTabsRules = {
   validateUrlRule,
   validateSearchUrl,
   resolveAction,
-  buildSearchUrl
+  buildSearchUrl,
+  decodeTimJumpUrl
 };
 
 if (typeof module !== "undefined" && module.exports) {

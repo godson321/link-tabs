@@ -9,7 +9,8 @@ const {
   validateUrlRule,
   validateSearchUrl,
   SEARCH_ENGINES,
-  buildSearchUrl
+  buildSearchUrl,
+  decodeTimJumpUrl
 } = require("../src/shared/rules.js");
 
 const base = { ...DEFAULT_SETTINGS, enabled: true };
@@ -573,6 +574,25 @@ test("本地页面（file://）上拖动文字搜索按全局默认行为处理"
   assert.equal(resolveAction("file:///E:/doc/test.html", base, "click"), "native");
   assert.equal(resolveAction("file:///E:/doc/test.html", base, "drag"), "native");
   assert.equal(resolveAction("file:///E:/doc/test.html", { ...base, textDragEnabled: false }, "search"), "native");
+});
+test("解码 TIM 卡片跳转链接（ssl.ptlogin2.qq.com/jump 的 u1 参数）", () => {
+  const target = "https://example.com/path?a=1&b=中文";
+  const single = "https://ssl.ptlogin2.qq.com/jump?pt_clientver=1&u1=" + encodeURIComponent(target);
+  assert.equal(decodeTimJumpUrl(single), new URL(target).href);
+  // 双重编码的 u1 同样能解出真实地址。
+  const double = "https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent(encodeURIComponent(target));
+  assert.equal(decodeTimJumpUrl(double), new URL(target).href);
+  // 非该跳转链接一律返回 null，不改动其它网址。
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/other?u1=" + encodeURIComponent(target)), null);
+  assert.equal(decodeTimJumpUrl("https://example.com/jump?u1=" + encodeURIComponent(target)), null);
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?nokey=1"), null);
+  // 解码结果必须是 http(s) 地址；非法协议与坏编码都不跳转。
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent("javascript:alert(1)")), null);
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=%E0%A4%A"), null);
+  // 空 u1、以及仅在第二次解码后才出现的非法协议，同样拒绝。
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1="), null);
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent(encodeURIComponent("javascript:alert(1)"))), null);
+  assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent("data:text/html,x")), null);
 });
 
 // ===== 三块功能独立配置（点击链接 / 拖动链接 / 拖动文字搜索） =====

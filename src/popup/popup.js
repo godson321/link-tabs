@@ -50,7 +50,7 @@ function render() {
   // 具体打开方式由设置页的规则决定，此处只描述总开关的效果。
   showStatus(currentSettings.enabled
     ? "已启用：链接按设置页的规则打开"
-    : "已停用：链接按浏览器原行为打开");
+    : "已停用：链接按浏览器原行为打开（TIM 链接修复仍生效）");
 
   engineSelect.value = currentSettings.searchEngine;
   if (currentSettings.searchEngine === "custom") {

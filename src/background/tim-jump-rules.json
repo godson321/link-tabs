@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "block"
+    },
+    "condition": {
+      "isCaseSensitive": true,
+      "regexFilter": "^https?://ssl\\.ptlogin2\\.qq\\.com/jump\\?([^#]*&)?u1=",
+      "resourceTypes": ["main_frame"]
+    }
+  }
+]
