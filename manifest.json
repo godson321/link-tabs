@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "后台新标签页",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "permissions": ["storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "src/background/service-worker.js" },
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
-    "js": ["src/shared/rules.js", "src/shared/settings.js", "src/content/link-interceptor.js"],
+    "js": ["src/shared/rules.js", "src/shared/settings.js", "src/shared/drag.js", "src/content/link-interceptor.js"],
     "run_at": "document_start",
     "all_frames": true
   }],
