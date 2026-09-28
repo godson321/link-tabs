@@ -37,7 +37,12 @@ function byId(id) {
 }
 
 const pageStatus = byId("page-status");
-const defaultActionSelect = byId("default-action");
+/** 全局默认行为：三个功能各一个下拉框，键与 LinkTabsRules.FUNCTIONS 一致。 */
+const defaultActionSelects = {
+  click: byId("default-action-click"),
+  drag: byId("default-action-drag"),
+  search: byId("default-action-search")
+};
 const searchEngineSelect = byId("search-engine");
 const searchUrlInput = byId("search-url");
 const searchError = byId("search-error");
@@ -112,8 +117,8 @@ function setControlsEnabled(enabled) {
 
 // ===== 设置变更：纯函数，作用于最新的设置对象 =====
 
-function withDefaultAction(current, action) {
-  return { ...current, defaultAction: action };
+function withDefaultAction(current, use, action) {
+  return { ...current, defaultActions: { ...current.defaultActions, [use]: action } };
 }
 
 function withSearchEngine(current, engine) {
@@ -139,11 +144,22 @@ function withDeletedRule(current, kind, id) {
   return { ...current, [kind]: current[kind].filter(rule => rule.id !== id) };
 }
 
+/** 保存队列：把同一页面上的多次保存串成一条链，见 persist 的说明。 */
+let saveQueue = Promise.resolve();
+
 /**
  * 先读取存储中的最新设置再应用变更，避免用本页面的旧状态覆盖其他页面
  * （例如弹窗）刚写入的值。保存失败时保留原状态并提示错误。
+ * 多次调用按顺序串行执行：本页有多个同类控件（三个全局默认行为下拉框），
+ * 连续快速修改时后一次读取到的仍是前一次写入前的存储，会吞掉前一次改动。
  */
-async function persist(change) {
+function persist(change) {
+  const result = saveQueue.then(() => persistOnce(change));
+  saveQueue = result.then(() => undefined, () => undefined);
+  return result;
+}
+
+async function persistOnce(change) {
   try {
     const next = change(await LinkTabsSettings.load());
     await LinkTabsSettings.save(next);
@@ -294,8 +310,10 @@ rulesBody.addEventListener("click", async event => {
 
 for (const [flag, box] of Object.entries(headerSwitches)) {
   box.addEventListener("change", async () => {
-    const saved = await persist(current => withSwitch(current, COLUMNS[flag], box.checked));
-    if (!saved) box.checked = !box.checked;
+    // 与全局默认行为下拉框同理：先取值，避免排队期间被重绘重置后再读取。
+    const checked = box.checked;
+    const saved = await persist(current => withSwitch(current, COLUMNS[flag], checked));
+    if (!saved) box.checked = !checked;
   });
 }
 
@@ -382,7 +400,9 @@ addForm.addEventListener("submit", async event => {
 
 function renderAll() {
   if (settings === null) return;
-  defaultActionSelect.value = settings.defaultAction;
+  for (const [use, select] of Object.entries(defaultActionSelects)) {
+    select.value = settings.defaultActions[use];
+  }
   timFixToggle.checked = settings.timFixEnabled;
   searchEngineSelect.value = settings.searchEngine;
   if (settings.searchEngine === "custom") {
@@ -399,13 +419,18 @@ function renderAll() {
   renderTable();
 }
 
-defaultActionSelect.addEventListener("change", async () => {
-  const saved = await persist(current => withDefaultAction(current, defaultActionSelect.value));
-  if (!saved) {
-    // 保存失败时恢复为存储中的值，不把未保存的选择留在界面上。
-    defaultActionSelect.value = settings.defaultAction;
-  }
-});
+for (const [use, select] of Object.entries(defaultActionSelects)) {
+  select.addEventListener("change", async () => {
+    if (settings === null) return;
+    // 立即取值：保存是排队的，回调真正执行时下拉框可能已被上一次保存后的重绘重置。
+    const action = select.value;
+    const saved = await persist(current => withDefaultAction(current, use, action));
+    if (!saved) {
+      // 保存失败时恢复为存储中的值，不把未保存的选择留在界面上。
+      select.value = settings.defaultActions[use];
+    }
+  });
+}
 
 searchEngineSelect.addEventListener("change", async () => {
   if (settings === null) return;
@@ -448,7 +473,8 @@ searchUrlInput.addEventListener("change", async () => {
 
 timFixToggle.addEventListener("change", async () => {
   if (settings === null) return;
-  const saved = await persist(current => withSwitch(current, "timFixEnabled", timFixToggle.checked));
+  const checked = timFixToggle.checked;
+  const saved = await persist(current => withSwitch(current, "timFixEnabled", checked));
   if (!saved) {
     timFixToggle.checked = settings.timFixEnabled;
   }

@@ -37,7 +37,7 @@ const MAX_DOMAIN_LABEL_LENGTH = 63;
 
 const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
-  defaultAction: "background",
+  defaultActions: Object.freeze({ click: "background", drag: "background", search: "background" }),
   searchEngine: "bing",
   searchUrl: "",
   clickEnabled: true,
@@ -486,13 +486,29 @@ function normalizeUrlRule(rule) {
   return validateUrlRule(candidate).valid ? candidate : null;
 }
 
+/**
+ * 归一化三个功能各自的全局默认行为。
+ * 优先取 defaultActions 中该功能的合法值；该项缺失或非法时回退到旧版单值
+ * defaultAction（1.4.3 及更早只有这一个字段）；两者都没有时用内置默认，
+ * 保证旧存储升级后行为不变。
+ */
+function normalizeDefaultActions(raw) {
+  const rawActions = isPlainObject(raw.defaultActions) ? raw.defaultActions : {};
+  const legacy = isSupportedAction(raw.defaultAction) ? raw.defaultAction : null;
+  const result = {};
+  for (const name of FUNCTIONS) {
+    result[name] = isSupportedAction(rawActions[name])
+      ? rawActions[name]
+      : (legacy ?? DEFAULT_SETTINGS.defaultActions[name]);
+  }
+  return result;
+}
+
 /** 把任意外部输入归一化为完整、有效的设置对象。 */
 function normalizeSettings(rawSettings) {
   const raw = isPlainObject(rawSettings) ? rawSettings : {};
   const enabled = typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_SETTINGS.enabled;
-  const defaultAction = isSupportedAction(raw.defaultAction)
-    ? raw.defaultAction
-    : DEFAULT_SETTINGS.defaultAction;
+  const defaultActions = normalizeDefaultActions(raw);
   const searchEngine = SEARCH_ENGINES.includes(raw.searchEngine)
     ? raw.searchEngine
     : DEFAULT_SETTINGS.searchEngine;
@@ -517,7 +533,7 @@ function normalizeSettings(rawSettings) {
   const urlRules = Array.isArray(raw.urlRules)
     ? raw.urlRules.map(normalizeUrlRule).filter(Boolean)
     : [];
-  return { enabled, defaultAction, searchEngine: effectiveEngine, searchUrl, ...functions, timFixEnabled, domainRules, urlRules };
+  return { enabled, defaultActions, searchEngine: effectiveEngine, searchUrl, ...functions, timFixEnabled, domainRules, urlRules };
 }
 
 /** 校验自定义搜索地址：必须是 http(s) 开头且包含 %s 占位符。 */
@@ -588,7 +604,7 @@ function matchesDomain(hostname, rule) {
  * `url` 使用浏览器序列化后的 href（点击与拖动链接传入链接目标，拖动文字搜索传入当前页面地址）。
  * `use` 指定功能：`"click"`（默认，左键点击链接）、`"drag"`（拖动链接）、`"search"`（拖动文字搜索）。
  * 顺序：归一化设置 → 总开关或该功能的开关关闭返回 native → 非 HTTP/HTTPS 返回 native
- * → 第一条勾选了该功能的匹配网址规则 → 第一条勾选了该功能的匹配域名规则 → 全局默认行为。
+ * → 第一条勾选了该功能的匹配网址规则 → 第一条勾选了该功能的匹配域名规则 → 该功能的全局默认行为。
  */
 function resolveAction(url, settings, use = "click") {
   const normalized = normalizeSettings(settings);
@@ -625,7 +641,7 @@ function resolveAction(url, settings, use = "click") {
     if (matchesDomain(hostname, rule)) return rule.action;
   }
 
-  return normalized.defaultAction;
+  return normalized.defaultActions[use];
 }
 
 const LinkTabsRules = {

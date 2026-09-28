@@ -14,12 +14,15 @@ const {
 } = require("../src/shared/rules.js");
 
 const base = { ...DEFAULT_SETTINGS, enabled: true };
+/** 三个功能的全局默认行为都设为“按浏览器原行为”，用于区分“规则命中”与“回落默认”。 */
+const nativeDefaults = Object.freeze({ click: "native", drag: "native", search: "native" });
 test("默认行为是在后台打开", () => {
   assert.equal(DEFAULT_SETTINGS.enabled, true);
   assert.equal(resolveAction("https://example.com/", DEFAULT_SETTINGS), "background");
 });
 test("可配置全局默认行为", () => {
-  assert.equal(resolveAction("https://other.example/", { ...base, defaultAction: "foreground" }), "foreground");
+  const settings = { ...base, defaultActions: { click: "foreground", drag: "foreground", search: "foreground" } };
+  assert.equal(resolveAction("https://other.example/", settings), "foreground");
 });
 test("网址规则覆盖域名规则，且网址规则按列表顺序匹配", () => {
   const settings = { ...base, domainRules: [{ domain: "example.com", includeSubdomains: false, action: "foreground" }],
@@ -252,7 +255,7 @@ test("超长星号序列的网址规则可正常校验和匹配且不抛错", ()
 test("通配符匹配按字面处理正则元字符且星号可匹配空串", () => {
   const settings = {
     ...base,
-    defaultAction: "native",
+    defaultActions: nativeDefaults,
     urlRules: [
       { pattern: "https://example.com/a.b/*", action: "foreground" },
       { pattern: "https://example.com/(x)+/*", action: "background" },
@@ -270,7 +273,7 @@ test("通配符匹配按字面处理正则元字符且星号可匹配空串", ()
 });
 // 回归：模式中的 `*` 与 href 中的字面 `*` 对齐时，星号必须展开匹配，而不是被当作字面字符消费。
 test("星号与 href 中的字面星号对齐时仍可展开匹配", () => {
-  const settings = { ...base, defaultAction: "native",
+  const settings = { ...base, defaultActions: nativeDefaults,
     urlRules: [{ pattern: "https://example.com/*", action: "foreground" }] };
   assert.equal(resolveAction("https://example.com/*foo", settings), "foreground");
   assert.equal(resolveAction("https://example.com/**", settings), "foreground");
@@ -300,7 +303,7 @@ test("通配符匹配在含字面星号的输入上与参考实现一致", () =>
   for (let round = 0; round < 2000; round += 1) {
     const pattern = "https://example.com/" + randomText(8);
     const href = "https://example.com/" + randomText(16);
-    const settings = { ...base, defaultAction: "native",
+    const settings = { ...base, defaultActions: nativeDefaults,
       urlRules: [{ pattern, action: "foreground" }] };
     const expected = referenceMatches(pattern, href) ? "foreground" : "native";
     assert.equal(resolveAction(href, settings), expected, `${pattern} vs ${href}`);
@@ -356,7 +359,7 @@ test("normalizeSettings 填充默认值并过滤无效规则", () => {
     urlRules: [{ pattern: "ftp://example.com/*", action: "background" }, { pattern: "https://example.com/*", action: "native" }]
   });
   assert.equal(normalized.enabled, false);
-  assert.equal(normalized.defaultAction, "background");
+  assert.deepEqual(normalized.defaultActions, { click: "background", drag: "background", search: "background" });
   assert.deepEqual(normalized.domainRules, [{ domain: "example.com", includeSubdomains: false, action: "foreground", click: true, drag: true, search: true }]);
   assert.deepEqual(normalized.urlRules, [{ pattern: "https://example.com/*", action: "native", click: true, drag: true, search: true }]);
 });
@@ -661,8 +664,80 @@ test("旧设置升级后点击与拖动行为不变", () => {
   assert.equal(normalized.linkDragEnabled, true);
   assert.equal(normalized.textDragEnabled, true);
   assert.equal(normalized.searchEngine, "bing");
+  assert.deepEqual(normalized.defaultActions, { click: "background", drag: "background", search: "background" });
   assert.equal(resolveAction("https://example.com/", normalized, "click"), "native");
   assert.equal(resolveAction("https://example.com/", normalized, "drag"), "native");
   assert.equal(resolveAction("https://example.com/private/a", normalized, "click"), "foreground");
   assert.equal(resolveAction("https://example.com/private/a", normalized, "drag"), "foreground");
+});
+
+// ===== 全局默认行为按功能分别设置 =====
+
+test("旧版单值 defaultAction 迁移为三个功能共用", () => {
+  const normalized = normalizeSettings({ enabled: true, defaultAction: "foreground" });
+  assert.deepEqual(normalized.defaultActions, { click: "foreground", drag: "foreground", search: "foreground" });
+  assert.equal("defaultAction" in normalized, false);
+});
+
+test("三个功能可以分别设置全局默认行为", () => {
+  const settings = {
+    ...base,
+    defaultActions: { click: "background", drag: "native", search: "foreground" }
+  };
+  assert.equal(resolveAction("https://example.com/", settings, "click"), "background");
+  assert.equal(resolveAction("https://example.com/", settings, "drag"), "native");
+  assert.equal(resolveAction("https://example.com/", settings, "search"), "foreground");
+});
+
+test("规则只对该功能生效，其余功能回落到各自的全局默认行为", () => {
+  const settings = {
+    ...base,
+    defaultActions: { click: "native", drag: "background", search: "foreground" },
+    domainRules: [{
+      domain: "example.com", includeSubdomains: false, action: "foreground",
+      click: true, drag: false, search: false
+    }]
+  };
+  assert.equal(resolveAction("https://example.com/", settings, "click"), "foreground");
+  assert.equal(resolveAction("https://example.com/", settings, "drag"), "background");
+  assert.equal(resolveAction("https://example.com/", settings, "search"), "foreground");
+});
+
+test("defaultActions 逐项回退：非法项用旧单值，旧单值缺失时用内置默认", () => {
+  const mixed = normalizeSettings({
+    enabled: true,
+    defaultAction: "foreground",
+    defaultActions: { drag: "native", search: "bogus" }
+  });
+  assert.deepEqual(mixed.defaultActions, { click: "foreground", drag: "native", search: "foreground" });
+  assert.deepEqual(normalizeSettings({ enabled: true }).defaultActions, { click: "background", drag: "background", search: "background" });
+  assert.deepEqual(normalizeSettings({ enabled: true, defaultActions: null }).defaultActions, { click: "background", drag: "background", search: "background" });
+  assert.deepEqual(normalizeSettings({ enabled: true, defaultActions: [] }).defaultActions, { click: "background", drag: "background", search: "background" });
+  // defaultActions 不是对象（例如旧代码误写成字符串）时，整项按缺失处理，回退旧单值。
+  assert.deepEqual(
+    normalizeSettings({ enabled: true, defaultAction: "native", defaultActions: "native" }).defaultActions,
+    { click: "native", drag: "native", search: "native" }
+  );
+});
+
+test("归一化不共享也不改动内置默认对象", () => {
+  const normalized = normalizeSettings({ enabled: true });
+  assert.notEqual(normalized.defaultActions, DEFAULT_SETTINGS.defaultActions);
+  // 改动归一化结果不应影响内置默认，也不应影响后续归一化。
+  normalized.defaultActions.click = "native";
+  assert.equal(DEFAULT_SETTINGS.defaultActions.click, "background");
+  assert.equal(normalizeSettings({ enabled: true }).defaultActions.click, "background");
+});
+
+test("功能开关关闭优先于该功能的全局默认行为与规则", () => {
+  const settings = {
+    ...base,
+    clickEnabled: false,
+    defaultActions: { click: "foreground", drag: "background", search: "background" },
+    urlRules: [{ pattern: "https://example.com/*", action: "foreground", click: true, drag: true, search: true }]
+  };
+  assert.equal(resolveAction("https://example.com/", settings, "click"), "native");
+  // 其它功能不受影响：命中规则时用规则动作，没有规则时回落到它自己的全局默认。
+  assert.equal(resolveAction("https://example.com/", settings, "drag"), "foreground");
+  assert.equal(resolveAction("https://other.example/", settings, "drag"), "background");
 });

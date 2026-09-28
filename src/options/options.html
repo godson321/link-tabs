@@ -10,7 +10,7 @@
     <header class="page-header">
       <h1>开链助手</h1>
       <p class="subtitle">
-        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关在工具栏弹窗中；搜索引擎与 TIM 链接修复在本页与弹窗中均可设置。
+        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用该功能各自的全局默认行为。总开关在工具栏弹窗中；搜索引擎与 TIM 链接修复在本页与弹窗中均可设置。
       </p>
     </header>
 
@@ -18,9 +18,18 @@
 
     <section class="card">
       <h2>全局默认行为</h2>
+      <p class="hint">没有规则命中时使用；三个功能可以分别设置。</p>
       <div class="field">
-        <label for="default-action">没有规则命中时</label>
-        <select id="default-action" data-action-select></select>
+        <label for="default-action-click">点击链接时</label>
+        <select id="default-action-click" data-action-select></select>
+      </div>
+      <div class="field">
+        <label for="default-action-drag">拖动链接时</label>
+        <select id="default-action-drag" data-action-select></select>
+      </div>
+      <div class="field">
+        <label for="default-action-search">拖动文字搜索时</label>
+        <select id="default-action-search" data-action-select></select>
       </div>
     </section>
 
