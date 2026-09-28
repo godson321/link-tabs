@@ -1,73 +1,75 @@
-# Background Link Tabs — Design Specification
+# 后台打开链接标签页 — 设计说明
 
-**Status:** User-approved direction; awaiting spec review  
-**Target:** `E:\\90 AI\\浏览器扩展`  
-**Date:** 2026-09-28
+| 项目 | 信息 |
+|---|---|
+| 状态 | 方案已获用户确认，设计说明待审阅 |
+| 项目位置 | `E:\90 AI\浏览器扩展` |
+| 日期 | 2026-09-28 |
 
-## Goal
+## 目标
 
-Build a Microsoft Edge extension that can make ordinary left-clicks on web links open in a new tab without switching away from the current tab. The user can quickly enable/disable the behavior and configure global, domain, and URL-pattern rules.
+开发一个 Microsoft Edge 扩展，让普通左键点击网页链接时在新标签页打开，同时不切离当前标签页。用户可以快速启用或停用扩展，并设置全局、域名和网址规则。
 
-## Product behavior
+## 功能行为
 
-- The extension is enabled by default after installation.
-- The global default action is **Background tab**: create a new tab, leave it inactive, and keep the current tab selected.
-- A toolbar popup exposes a clear master on/off toggle.
-- An options page lets the user change the global default and add, edit, reorder, or remove rules.
-- Each rule can choose one of three actions: **Background tab**, **Foreground tab**, or **Use browser behavior** (do not intercept; let the website/browser handle the link normally).
-- Supported rule kinds:
-  - **Domain**: match an exact hostname by default, with an explicit “include subdomains” checkbox.
-  - **URL pattern**: match an HTTP(S) URL using `*` as a wildcard for zero or more characters; compare hostnames case-insensitively.
-- Rule resolution: matching URL-pattern rules take precedence over domain rules; otherwise use the global default. Within each rule kind, the first matching rule in the user-defined order wins.
-- Turning the extension off restores normal browser/site link behavior without deleting settings.
+- 扩展安装后默认启用。
+- 全局默认行为是**后台新标签页**：创建新标签页但不激活它，当前标签页继续保持选中。
+- 工具栏弹窗提供清晰的总开关。
+- 设置页允许修改全局默认行为，并添加、编辑、排序或删除规则。
+- 每条规则可选择三种行为之一：**后台新标签页**、**前台新标签页**或**按浏览器原行为**（不拦截链接，让网站和浏览器正常处理）。
+- 支持的规则类型：
+  - **域名规则：** 默认匹配完整主机名，并提供“包含子域名”选项。
+  - **网址规则：** 匹配 HTTP/HTTPS 网址；`*` 表示匹配零个或多个字符；主机名比较时忽略大小写。
+- 规则优先级：匹配的网址规则优先于域名规则；两类规则均未命中时使用全局默认值。同一类规则有多个匹配时，采用用户排序后最靠前的一条。
+- 停用扩展后，链接恢复浏览器和网站原有行为，已保存的设置不会被删除。
 
-## Scope and exclusions
+## 处理范围与例外
 
-- Intercept unmodified primary-button clicks on ordinary `<a href>` links whose destination is HTTP or HTTPS.
-- Preserve native behavior for Ctrl/Shift/Alt-modified clicks, middle/right clicks, downloads, `mailto:`, `javascript:`, other non-web schemes, and same-document fragment navigation.
-- Browser-protected pages (for example `edge://` pages and the Edge Add-ons store) cannot be controlled by the extension.
-- This extension changes link navigation, not arbitrary button-driven JavaScript navigation.
-- Sites that implement custom click behavior may be affected when a link is intercepted; the implementation should limit interception to eligible anchors and avoid unrelated page changes.
+- 拦截普通 `<a href>` 链接上未按住修饰键的主键点击；链接目标必须为 HTTP 或 HTTPS。
+- Ctrl/Shift/Alt 等修饰键点击、中键或右键点击、下载链接、`mailto:`、`javascript:`、其他非网页协议，以及同一文档内的片段跳转，均保留原生行为。
+- 扩展无法控制浏览器受保护的页面，例如 `edge://` 页面和 Edge 加载项商店。
+- 扩展只处理链接导航，不处理由按钮触发的任意 JavaScript 跳转。
+- 拦截链接可能影响使用自定义点击逻辑的网站；实现时应仅拦截符合条件的链接，避免干扰无关页面操作。
 
-## Architecture
+## 架构
 
-- **Manifest V3 content script:** observes eligible anchor clicks on permitted web pages and resolves the configured action.
-- **Service worker:** receives the resolved destination and creates a tab. Background action uses `active: false`; foreground action uses `active: true`.
-- **Toolbar popup:** reads/writes the master enabled flag for quick control.
-- **Options page:** edits the default action and ordered domain/URL rules.
-- **Shared rule resolver:** a small pure module used by the content script and automated tests.
-- **Storage:** `chrome.storage.local`; settings remain local and no browsing data is transmitted externally.
+- **Manifest V3 内容脚本：** 在获准访问的网页中观察符合条件的链接点击，并解析配置的行为。
+- **Service worker：** 接收目标网址和操作，创建标签页。后台打开时使用 `active: false`；前台打开时使用 `active: true`。
+- **工具栏弹窗：** 读取和修改总开关，便于快速启停。
+- **设置页：** 编辑全局默认行为，以及有顺序的域名规则和网址规则。
+- **共享规则解析模块：** 由内容脚本和自动化测试共用的纯逻辑模块。
+- **存储：** 使用 `chrome.storage.local` 保存设置；不向外部发送浏览数据。
 
-## Permissions and privacy
+## 权限与隐私
 
-To apply to links on all ordinary websites, the extension requires access to all websites (host access for the content script), plus extension storage. The install/permission UI must make this broad access understandable. The extension performs no analytics, remote requests, or browsing-history collection; it stores only user settings.
+要处理所有普通网站上的链接，扩展需要获得所有网站的访问权限（供内容脚本使用），并需要扩展存储权限。安装和权限说明应清楚解释广泛的网站访问权限。扩展不包含分析功能、不发起远程请求、不收集浏览历史，只保存用户设置。
 
-## Interaction flow
+## 点击处理流程
 
-1. On an eligible plain left-click, the content script finds the nearest eligible anchor and resolves the URL/domain rules.
-2. If disabled or the resulting action is **Use browser behavior**, it leaves the click untouched.
-3. For a background/foreground action, it prevents the anchor's default navigation and sends the destination/action to the service worker.
-4. The service worker creates a tab with the selected active state.
-5. The current tab remains selected for the default background action.
+1. 用户在符合条件的链接上普通左键点击后，内容脚本找到最近的有效链接，并解析网址/域名规则。
+2. 如果扩展已停用，或最终行为为“按浏览器原行为”，内容脚本不拦截点击。
+3. 如果最终行为是后台或前台新标签页，内容脚本阻止链接的默认导航，并将目标网址和行为发送给 Service worker。
+4. Service worker 按所选行为创建标签页。
+5. 默认的后台打开行为不会切换当前标签页。
 
-## Failure behavior
+## 失败处理
 
-- On first install, initialize the extension as enabled with **Background tab** as the global default. If settings cannot be read at runtime, preserve native browser behavior and log a diagnostic rather than risk losing the original navigation.
-- If a message/tab creation fails after interception, report a diagnostic to the extension console; do not silently change the requested action to a foreground tab.
-- Invalid rules are rejected in the options page with a clear validation message and are not saved.
+- 首次安装时将扩展初始化为启用状态，全局默认行为设为**后台新标签页**。运行时无法读取设置时，保留浏览器原行为并记录诊断信息，避免丢失原始导航。
+- 点击已被拦截后，如果消息传递或创建标签页失败，则在扩展控制台记录诊断信息；不得悄悄改为前台打开。
+- 设置页应拒绝无效规则，显示清晰的校验错误，并且不保存该规则。
 
-## Verification / acceptance criteria
+## 验收标准
 
-1. With a fresh install and extension enabled, a plain left-click on an HTTP(S) link creates a new inactive tab and leaves the source tab selected.
-2. A URL-pattern rule overrides a matching domain rule; domain rules apply when no URL rule matches; unmatched links use the configured global default.
-3. Background, foreground, and browser-behavior actions each produce their specified result.
-4. Disabling the master toggle restores native behavior; re-enabling restores the saved configuration.
-5. Modified clicks, downloads, non-HTTP(S) links, and same-document fragments retain native behavior.
-6. Rule matching and validation have automated tests; the unpacked extension is manually smoke-tested in Edge.
-7. The repository includes concise instructions for loading the unpacked extension through `edge://extensions`.
+1. 全新安装并启用扩展后，普通左键点击 HTTP/HTTPS 链接会创建一个未激活的新标签页，来源标签页仍保持选中。
+2. 网址规则优先于匹配的域名规则；未命中网址规则时应用域名规则；都未命中时使用全局默认行为。
+3. 后台新标签页、前台新标签页和按浏览器原行为三种操作均符合定义。
+4. 关闭总开关后恢复浏览器原行为；重新启用后恢复已保存的配置。
+5. 带修饰键的点击、下载、非 HTTP/HTTPS 链接及同文档片段跳转均保留原生行为。
+6. 规则匹配和校验逻辑有自动化测试；并在 Edge 中手动测试已解压的扩展。
+7. 仓库包含通过 `edge://extensions` 加载已解压扩展的简明说明。
 
-## Approaches considered
+## 方案比较
 
-- **Recommended/selected: Edge MV3 extension with a content script and service worker.** Meets global interception, background tab creation, and editable rules; requires broad host access.
-- **User script:** lower setup overhead but weaker all-site management and settings UX.
-- **Browser-native settings/context menu:** cannot make ordinary left-clicks universally open inactive tabs, so it does not meet the requirements.
+- **推荐并选用：基于内容脚本和 Service worker 的 Edge Manifest V3 扩展。** 能实现全网站链接拦截、后台新建标签页及可编辑规则；代价是需要广泛的网站访问权限。
+- **用户脚本：** 安装流程可能更轻量，但全网站管理和设置体验较弱。
+- **浏览器内置设置或右键菜单：** 无法让普通左键点击在所有网站上统一后台打开，不满足需求。
