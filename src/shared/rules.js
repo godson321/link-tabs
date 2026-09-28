@@ -70,22 +70,39 @@ function validateDomainRule(rule) {
   return { valid: true };
 }
 
-/** 判断通配符模式能否展开为指定的 IPv6 文本结构。 */
-function wildcardFitsIpv6Shape(pattern, shape, patternIndex = 0, shapeIndex = 0, seen = new Set()) {
-  const key = patternIndex + ":" + shapeIndex;
-  if (seen.has(key)) return false;
-  seen.add(key);
-  if (patternIndex === pattern.length) return shapeIndex === shape.length;
-  if (pattern[patternIndex] === "*") {
-    return wildcardFitsIpv6Shape(pattern, shape, patternIndex + 1, shapeIndex, seen) ||
-      (shapeIndex < shape.length &&
-        wildcardFitsIpv6Shape(pattern, shape, patternIndex, shapeIndex + 1, seen));
+/**
+ * 迭代式 glob 匹配，避免通配符数量受 JavaScript 调用栈限制。
+ * shape 中的 `h` 代表任意十六进制字符，其余字符按字面比较。
+ */
+function wildcardFitsIpv6Shape(pattern, shape) {
+  let patternIndex = 0;
+  let shapeIndex = 0;
+  let starIndex = -1;
+  let starShapeIndex = -1;
+
+  while (shapeIndex < shape.length) {
+    const patternChar = pattern[patternIndex];
+    const shapeChar = shape[shapeIndex];
+    const matches = shapeChar === "h"
+      ? typeof patternChar === "string" && /^[0-9a-f]$/i.test(patternChar)
+      : patternChar === shapeChar;
+    if (matches) {
+      patternIndex += 1;
+      shapeIndex += 1;
+    } else if (patternChar === "*") {
+      starIndex = patternIndex;
+      starShapeIndex = shapeIndex;
+      patternIndex += 1;
+    } else if (starIndex !== -1) {
+      patternIndex = starIndex + 1;
+      starShapeIndex += 1;
+      shapeIndex = starShapeIndex;
+    } else {
+      return false;
+    }
   }
-  if (shapeIndex === shape.length) return false;
-  const matches = shape[shapeIndex] === ":"
-    ? pattern[patternIndex] === ":"
-    : /^[0-9a-f]$/i.test(pattern[patternIndex]);
-  return matches && wildcardFitsIpv6Shape(pattern, shape, patternIndex + 1, shapeIndex + 1, seen);
+  while (pattern[patternIndex] === "*") patternIndex += 1;
+  return patternIndex === pattern.length;
 }
 
 /** 判断模式是否至少有一种合法的纯十六进制 IPv6 展开。 */
@@ -119,26 +136,95 @@ function hasValidIpv6Expansion(pattern) {
   return false;
 }
 
+function wildcardMatches(pattern, value) {
+  let patternIndex = 0;
+  let valueIndex = 0;
+  let starIndex = -1;
+  let starValueIndex = -1;
+  while (valueIndex < value.length) {
+    if (pattern[patternIndex] === value[valueIndex]) {
+      patternIndex += 1;
+      valueIndex += 1;
+    } else if (pattern[patternIndex] === "*") {
+      starIndex = patternIndex;
+      starValueIndex = valueIndex;
+      patternIndex += 1;
+    } else if (starIndex !== -1) {
+      patternIndex = starIndex + 1;
+      starValueIndex += 1;
+      valueIndex = starValueIndex;
+    } else {
+      return false;
+    }
+  }
+  while (pattern[patternIndex] === "*") patternIndex += 1;
+  return patternIndex === pattern.length;
+}
+
+/** 返回一个 URL 解析器可接受的端口展开；null 表示不存在。 */
+function findValidPortExpansion(pattern) {
+  if (!pattern.includes("*")) {
+    return /^\d+$/.test(pattern) && Number(pattern) <= 65535 ? pattern : null;
+  }
+  if (wildcardMatches(pattern, "")) return "";
+  for (let port = 0; port <= 65535; port += 1) {
+    const candidate = String(port);
+    if (wildcardMatches(pattern, candidate)) return candidate;
+  }
+  return null;
+}
+
+/** 校验 userinfo、主机和端口；各位置的通配符可独立选择空或非空展开。 */
+function hasValidOrdinaryAuthorityExpansion(authority) {
+  const at = authority.lastIndexOf("@");
+  const userinfo = at === -1 ? "" : authority.slice(0, at + 1);
+  const hostAndPort = authority.slice(at + 1);
+  const colon = hostAndPort.lastIndexOf(":");
+  if (colon !== -1 && hostAndPort.slice(0, colon).includes(":")) return false;
+  const host = colon === -1 ? hostAndPort : hostAndPort.slice(0, colon);
+  const port = colon === -1 ? null : hostAndPort.slice(colon + 1);
+  const portExpansion = port === null ? null : findValidPortExpansion(port);
+  if (!host || (port !== null && portExpansion === null)) return false;
+
+  for (const userProbe of userinfo.includes("*") ? [userinfo.replace(/\*/g, ""), userinfo.replace(/\*/g, "0")] : [userinfo]) {
+    for (const hostProbe of host.includes("*") ? [host.replace(/\*/g, ""), host.replace(/\*/g, "0")] : [host]) {
+      const portProbe = port === null ? "" : ":" + portExpansion;
+      try {
+        const probe = new URL("http://" + userProbe + hostProbe + portProbe + "/");
+        if (probe.hostname !== "") return true;
+      } catch {
+        // Try the next independent wildcard expansion.
+      }
+    }
+  }
+  return false;
+}
+
 /** 校验 URL 模式的 authority 结构，同时容纳任意位置的 `*`。 */
 function isValidUrlAuthority(authority) {
   if (!authority || /[\s\\]/.test(authority)) return false;
-  try {
-    const probe = new URL("http://" + authority.replace(/\*/g, "0") + "/");
-    return probe.hostname !== "";
-  } catch {
-    const bracketed = /^(.*@)?\[([^\]]*)\](.*)$/.exec(authority);
-    if (!bracketed || !bracketed[2].includes("*") || !hasValidIpv6Expansion(bracketed[2])) {
-      return false;
+  const bracketed = /^(.*@)?\[([^\]]*)\](?::([^:]*))?$/.exec(authority);
+  if (bracketed) {
+    if (!bracketed[2].includes("*") || !hasValidIpv6Expansion(bracketed[2])) {
+      try {
+        return new URL("http://" + authority + "/").hostname !== "";
+      } catch {
+        return false;
+      }
     }
+    const portExpansion = bracketed[3] === undefined
+      ? null
+      : findValidPortExpansion(bracketed[3]);
+    if (bracketed[3] !== undefined && portExpansion === null) return false;
+    const userProbe = (bracketed[1] || "").replace(/\*/g, "");
+    const portProbe = bracketed[3] === undefined ? "" : ":" + portExpansion;
     try {
-      const probe = new URL(
-        "http://" + (bracketed[1] || "") + "[::1]" + bracketed[3].replace(/\*/g, "0") + "/"
-      );
-      return probe.hostname !== "";
+      return new URL("http://" + userProbe + "[::1]" + portProbe + "/").hostname !== "";
     } catch {
       return false;
     }
   }
+  return hasValidOrdinaryAuthorityExpansion(authority);
 }
 
 function validateUrlRule(rule) {

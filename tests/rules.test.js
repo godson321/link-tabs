@@ -57,6 +57,30 @@ test("网址规则接受可展开为合法 IPv6 authority 的通配符", () => {
     urlRules: [{ pattern, action: "native" }]
   }), "native");
 });
+test("authority 通配符可用空展开保留有效端口", () => {
+  const pattern = "https://example.com:65535*/*";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://example.com:65535/private", {
+    ...base,
+    urlRules: [{ pattern, action: "native" }]
+  }), "native");
+});
+test("IPv6 authority 与端口通配符可分别选择有效展开", () => {
+  const pattern = "https://[*]:65535*/*";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://[2001:db8::1]:65535/private", {
+    ...base,
+    urlRules: [{ pattern, action: "native" }]
+  }), "native");
+});
+test("超长 IPv6 通配符串的校验不会抛出", () => {
+  const pattern = "https://[" + "*".repeat(20000) + "]/*";
+  let result;
+  assert.doesNotThrow(() => {
+    result = validateUrlRule({ pattern, action: "native" });
+  });
+  assert.deepEqual(result, { valid: true });
+});
 test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
   const { normalizeSettings } = require("../src/shared/rules.js");
   const normalized = normalizeSettings({
