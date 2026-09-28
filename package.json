@@ -1,0 +1,8 @@
+{
+  "name": "edge-background-link-tabs",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "test": "node --test"
+  }
+}
