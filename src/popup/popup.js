@@ -8,7 +8,6 @@ const ENGINE_LABELS = {
 };
 
 const enabledToggle = document.getElementById("enabled-toggle");
-const timFixToggle = document.getElementById("tim-fix-toggle");
 const statusText = document.getElementById("status");
 const engineSelect = document.getElementById("search-engine");
 const urlInput = document.getElementById("search-url");
@@ -43,17 +42,15 @@ function showSearchError(message) {
 function render() {
   const loaded = currentSettings !== null;
   enabledToggle.disabled = !loaded;
-  timFixToggle.disabled = !loaded;
   engineSelect.disabled = !loaded;
   urlInput.disabled = !loaded;
   if (!loaded) return;
 
   enabledToggle.checked = currentSettings.enabled;
-  timFixToggle.checked = currentSettings.timFixEnabled;
   // 具体打开方式由设置页的规则决定，此处只描述总开关的效果。
   showStatus(currentSettings.enabled
     ? "已启用：链接按设置页的规则打开"
-    : "已停用：链接按浏览器原行为打开（TIM 链接修复另有开关）");
+    : "已停用：链接按浏览器原行为打开");
 
   engineSelect.value = currentSettings.searchEngine;
   if (currentSettings.searchEngine === "custom") {
@@ -103,18 +100,6 @@ enabledToggle.addEventListener("change", async () => {
     // 保存失败时恢复真实状态，不伪装为切换成功。
     enabledToggle.checked = currentSettings.enabled;
     enabledToggle.disabled = false;
-  }
-});
-
-timFixToggle.addEventListener("change", async () => {
-  if (currentSettings === null) return;
-  timFixToggle.disabled = true;
-  const saved = await saveChange(current => ({ ...current, timFixEnabled: timFixToggle.checked }));
-  if (saved) {
-    render();
-  } else {
-    timFixToggle.checked = currentSettings.timFixEnabled;
-    timFixToggle.disabled = false;
   }
 });
 
