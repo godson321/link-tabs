@@ -318,3 +318,84 @@ RangeError: Maximum call stack size exceeded
 - 修复未改变规则匹配顺序、hostname/path 大小写规则或 domain 行为。
 - 端口存在性检查最多扫描 65,536 个短字符串；这是有限协议域的完整判定，不是输入长度上限。当前测试运行约 113 ms，无阻塞关注点。
 - 修复提交 `3d463b4` 包含生产代码、回归测试及本轮报告初稿；后续仅以文档提交补录该哈希。
+
+---
+
+# Task 1 修复报告（fix round 4/5）
+
+- 状态：DONE
+- FIX_BASE：`4a23a57ee32ba35f945c7e02db600c5bbbfbf03b`
+- 修复提交：`8dd44ae0049d343f3b41919f78cb0d4baeac087d` — `fix: validate wildcard authorities efficiently`
+- 覆盖文件：`src/shared/rules.js`、`tests/rules.test.js`、`.superpowers/sdd/2026-09-28-background-link-tabs/task-1-report.md`
+
+## 修复内容
+
+1. **普通主机/userinfo 的独立 glob 展开不完整**：以预构建、固定大小的 URL authority NFA 表达 userinfo、普通主机、端口与 IPv6 结构；使用 pattern/NFA 状态乘积搜索 glob 与 authority grammar 的交集，并用 URL parser 检验见证。`https://*%*/*` 及含 userinfo 的对应情况现能找到合法独立展开，不再依赖“全空/全 0”探针。
+2. **长且不可能的 IPv6 glob 搜索耗时**：移除按 IPv6 候选形状递归枚举的逻辑。乘积搜索采用队列和去重状态，无递归；NFA grammar 固定，访问量随输入 pattern 长度线性增长，不设 pattern 长度上限。
+3. **保护 authority 结构边界**：`@`、端口 `:` 和方括号边界须由 pattern 字面提供，不可由 `*` 合成。这样避免把 `example.com:65536*` 的通配展开解释成 userinfo + `@host` 以绕过非法端口检查；既有 malformed authority 检查继续生效。
+
+## TDD / 回归证据
+
+- FIX_BASE 复现（用 `git show 4a23a57:src/shared/rules.js` 加载基线）：`https://*%*/*` 返回 `valid: false`；长 IPv6 impossible probe：10 个 `*` 为 193.14ms、100 个为 506.36ms、1,000 个为 3,399.39ms。基线命令输出还确认 `https://example.com:65536*/*` 返回 `valid: false`。
+- 首次检查未完成的 round-4 脏实现时，`npm test` 以 18/19 失败，失败点为 `https://example.com:65536*/*` 得到 `true` 而非 `false`；根因为 NFA 允许 `*` 生成 authority 结构分隔符。补上结构边界标记及限制后转绿。
+- `tests/rules.test.js` 保留/覆盖：`https://*%*/*`、userinfo 独立通配符、合法 IPv6 `https://[*]/*`、空端口展开 `:65535*`，拒绝 `:65536*`，以及 1,000 个星号后接不可能字面 `g` 的 IPv6 模式（断言无效且校验 <500ms）。原有 20,000 星号不抛异常测试仍通过。
+
+### 最终全量测试（提交 `8dd44ae` 后运行）
+
+命令：`npm test`，退出码 0：
+
+```text
+> test
+> node --test
+
+✔ 默认行为是在后台打开 (0.9715ms)
+✔ 可配置全局默认行为 (0.3866ms)
+✔ 网址规则覆盖域名规则，且网址规则按列表顺序匹配 (1.5126ms)
+✔ 域名规则按边界匹配子域 (0.3643ms)
+✔ 禁用和非网页协议不拦截 (0.2049ms)
+✔ 拒绝非 HTTP/HTTPS 网址规则 (0.194ms)
+✔ 拒绝主机名、端口或 IPv6 非法的网址规则 (2.3318ms)
+✔ 网址规则接受合法主机、端口与通配符 (0.5024ms)
+✔ 网址规则支持独立通配符形成合法的普通主机和 userinfo (0.6481ms)
+✔ 网址规则接受可展开为合法 IPv6 authority 的通配符 (4.2334ms)
+✔ authority 通配符可用空展开保留有效端口 (0.6778ms)
+✔ IPv6 authority 与端口通配符可分别选择有效展开 (3.8127ms)
+✔ 拒绝包含长通配符序列和不可能字面的 IPv6 模式且校验及时 (8.4467ms)
+✔ 超长 IPv6 通配符串的校验不会抛出 (1.5346ms)
+✔ normalizeSettings 丢弃 authority 非法的网址规则 (0.4232ms)
+✔ 网址规则主机名不区分大小写但路径区分大小写 (0.5578ms)
+✔ 域名规则默认只匹配完整主机名 (0.2373ms)
+✔ 域名规则按列表顺序匹配，第一条匹配生效 (0.2681ms)
+✔ normalizeSettings 填充默认值并过滤无效规则 (0.3366ms)
+ℹ tests 19
+ℹ suites 0
+ℹ pass 19
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 193.3952
+```
+
+### 可复现 probe（提交版本）
+
+调用 `validateUrlRule({ pattern, action: "background" })`；测试输入为 `https://[${"*".repeat(n)}g]/*`。一次实测输出：
+
+```text
+https://*%*/*: true
+https://example.com:65536*/*: false
+https://example.com:65535*/*: true
+10 stars: valid=false; elapsed=29.57ms
+100 stars: valid=false; elapsed=12.16ms
+1000 stars: valid=false; elapsed=18.83ms
+20000 stars: valid=false; elapsed=12.44ms
+```
+
+计时受运行时/JIT 影响，仅作可重现实测参考；重点是 20,000 字符也在有限状态搜索中完成，且无任意长度 cap。
+
+## 自审与关注点
+
+- `git diff --check` 通过；改动只涉及规则校验、对应回归测试和本报告，未更改 spec/plan/ledger。
+- 完整回归覆盖仍包括 malformed authority 拒绝、大小写及规则优先级；本轮未改 resolver 匹配语义。
+- IPv4-embedded IPv6 的**字面地址**继续由 URL parser 分支识别；本轮没有扩展通配符 IPv4-embedded IPv6 的语言范围（此前回合也记录为未支持）。
+- 未派发 reviewer/agents，遵循本任务禁止派发 agents 的指示；自审关注点为 authority NFA 与 WHATWG URL parser 规则需要保持同步。
