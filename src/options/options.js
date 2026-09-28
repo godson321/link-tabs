@@ -6,10 +6,23 @@ const ACTION_LABELS = {
   native: "按浏览器原行为"
 };
 
-const SEARCH_ENGINE_LABELS = {
-  bing: "Bing",
-  google: "Google",
-  baidu: "百度"
+const ACTION_SHORT = {
+  background: "后",
+  foreground: "前",
+  native: "原"
+};
+
+const FLAG_LABELS = {
+  click: "点击链接",
+  drag: "拖动链接",
+  search: "拖动文字搜索"
+};
+
+/** 表格三个功能列：列内勾选字段与对应的全局开关字段。 */
+const COLUMNS = {
+  click: "clickEnabled",
+  drag: "linkDragEnabled",
+  search: "textDragEnabled"
 };
 
 function byId(id) {
@@ -18,13 +31,35 @@ function byId(id) {
 
 const pageStatus = byId("page-status");
 const defaultActionSelect = byId("default-action");
-const searchEngineSelect = byId("search-engine");
-const toggleClick = byId("toggle-click");
-const toggleLinkDrag = byId("toggle-link-drag");
-const toggleTextDrag = byId("toggle-text-drag");
+const rulesTable = byId("rules-table");
+const rulesBody = byId("rules-body");
+const trashTemplate = byId("trash-icon");
+const headerSwitches = {
+  click: byId("header-click"),
+  drag: byId("header-drag"),
+  search: byId("header-search")
+};
+const addDialog = byId("add-dialog");
+const addForm = byId("add-form");
+const addSubmit = byId("add-submit");
+const dialogError = byId("dialog-error");
+const typeSelect = byId("rule-type");
+const urlFields = byId("url-fields");
+const domainFields = byId("domain-fields");
+const subdomainsField = byId("subdomains-field");
+const patternInput = byId("rule-pattern");
+const domainInput = byId("rule-domain");
+const subdomainsCheckbox = byId("rule-subdomains");
+const ruleActionSelect = byId("rule-action");
+const applyBoxes = {
+  click: byId("apply-click"),
+  drag: byId("apply-drag"),
+  search: byId("apply-search")
+};
 
 /** 已加载的设置；读取失败时保持 null，页面控件保持禁用。 */
 let settings = null;
+let dialogSaving = false;
 
 /** 动作下拉框的选项由 LinkTabsRules.ACTIONS 生成，界面不会出现解析器不支持的动作。 */
 for (const select of document.querySelectorAll("select[data-action-select]")) {
@@ -34,14 +69,6 @@ for (const select of document.querySelectorAll("select[data-action-select]")) {
     option.textContent = ACTION_LABELS[action];
     select.append(option);
   }
-}
-
-/** 搜索引擎下拉框由 LinkTabsRules.SEARCH_ENGINES 生成，界面不会出现解析器不支持的值。 */
-for (const engine of LinkTabsRules.SEARCH_ENGINES) {
-  const option = document.createElement("option");
-  option.value = engine;
-  option.textContent = SEARCH_ENGINE_LABELS[engine] || engine;
-  searchEngineSelect.append(option);
 }
 
 function showStatus(message, isError = false) {
@@ -61,10 +88,6 @@ function withDefaultAction(current, action) {
   return { ...current, defaultAction: action };
 }
 
-function withSearchEngine(current, engine) {
-  return { ...current, searchEngine: engine };
-}
-
 function withSwitch(current, name, value) {
   return { ...current, [name]: value };
 }
@@ -73,29 +96,20 @@ function withAddedRule(current, kind, rule) {
   return { ...current, [kind]: [...current[kind], { ...rule, id: crypto.randomUUID() }] };
 }
 
-function withUpdatedRule(current, kind, id, rule) {
+function withUpdatedRuleFlag(current, kind, id, flag, value) {
   return {
     ...current,
-    [kind]: current[kind].map(item => (item.id === id ? { ...rule, id } : item))
+    [kind]: current[kind].map(rule => (rule.id === id ? { ...rule, [flag]: value } : rule))
   };
 }
 
 function withDeletedRule(current, kind, id) {
-  return { ...current, [kind]: current[kind].filter(item => item.id !== id) };
-}
-
-function withMovedRule(current, kind, id, offset) {
-  const rules = [...current[kind]];
-  const index = rules.findIndex(item => item.id === id);
-  const target = index + offset;
-  if (index === -1 || target < 0 || target >= rules.length) return current;
-  [rules[index], rules[target]] = [rules[target], rules[index]];
-  return { ...current, [kind]: rules };
+  return { ...current, [kind]: current[kind].filter(rule => rule.id !== id) };
 }
 
 /**
  * 先读取存储中的最新设置再应用变更，避免用本页面的旧状态覆盖其他页面
- * （例如弹窗总开关）刚写入的值。保存失败时保留原状态并提示错误。
+ * （例如弹窗）刚写入的值。保存失败时保留原状态并提示错误。
  */
 async function persist(change) {
   try {
@@ -112,274 +126,235 @@ async function persist(change) {
   return true;
 }
 
-// ===== 规则列表控制器 =====
+// ===== 规则表格 =====
 
-/** 规则勾选的功能；三项全勾时不显示后缀。 */
-function describeRuleFunctions(rule) {
-  const labels = [];
-  if (rule.click) labels.push("点击");
-  if (rule.drag) labels.push("拖动");
-  if (rule.search) labels.push("搜索");
-  if (labels.length === 3) return "";
-  return `（仅${labels.join("、")}）`;
+function describeRule(kind, rule) {
+  if (kind === "urlRules") return rule.pattern;
+  return rule.includeSubdomains ? `${rule.domain}（含子域名）` : rule.domain;
 }
 
-function createRuleController(config) {
-  let editingId = null;
-  let saving = false;
+function buildRow(kind, rule) {
+  const value = describeRule(kind, rule);
+  const row = document.createElement("tr");
+  row.dataset.id = rule.id;
+  row.dataset.kind = kind;
 
-  function updateFormMode() {
-    config.submit.textContent = editingId === null ? "添加规则" : "保存修改";
-    config.cancel.hidden = editingId === null;
+  const typeCell = document.createElement("td");
+  const typeBadge = document.createElement("span");
+  typeBadge.className = "badge";
+  typeBadge.textContent = kind === "urlRules" ? "网址" : "域名";
+  typeCell.append(typeBadge);
+
+  const valueCell = document.createElement("td");
+  valueCell.className = "value";
+  valueCell.textContent = value;
+
+  const actionCell = document.createElement("td");
+  actionCell.className = "center";
+  const actionBadge = document.createElement("span");
+  actionBadge.className = "action-badge";
+  actionBadge.textContent = ACTION_SHORT[rule.action];
+  actionBadge.title = ACTION_LABELS[rule.action];
+  actionCell.append(actionBadge);
+
+  row.append(typeCell, valueCell, actionCell);
+
+  for (const [flag, switchName] of Object.entries(COLUMNS)) {
+    const cell = document.createElement("td");
+    cell.className = "center";
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.checked = rule[flag] === true;
+    // 该功能全局停用时，行内勾选变灰停用（原值保留，重新启用后恢复）。
+    box.disabled = settings[switchName] !== true;
+    box.dataset.flag = flag;
+    box.setAttribute("aria-label", `${value} 的${FLAG_LABELS[flag]}`);
+    cell.append(box);
+    row.append(cell);
   }
 
-  function clearFieldError() {
-    config.error.textContent = "";
-    config.error.hidden = true;
+  const actionsCell = document.createElement("td");
+  actionsCell.className = "center";
+  const deleteButton = document.createElement("button");
+  deleteButton.type = "button";
+  deleteButton.className = "icon-button";
+  deleteButton.dataset.delete = "true";
+  deleteButton.title = "删除";
+  deleteButton.setAttribute("aria-label", `删除规则：${value}`);
+  deleteButton.append(trashTemplate.content.cloneNode(true));
+  actionsCell.append(deleteButton);
+  row.append(actionsCell);
+
+  return row;
+}
+
+function renderTable() {
+  if (settings === null) return;
+  for (const [flag, switchName] of Object.entries(COLUMNS)) {
+    rulesTable.classList.toggle(`col-${flag}-off`, settings[switchName] !== true);
+  }
+  rulesBody.textContent = "";
+
+  if (settings.urlRules.length === 0 && settings.domainRules.length === 0) {
+    const row = document.createElement("tr");
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.className = "rule-empty";
+    cell.textContent = "暂无规则。";
+    row.append(cell);
+    rulesBody.append(row);
+    return;
   }
 
-  function showFieldError(message) {
-    config.error.textContent = message;
-    config.error.hidden = false;
+  for (const rule of settings.urlRules) rulesBody.append(buildRow("urlRules", rule));
+  if (settings.urlRules.length > 0 && settings.domainRules.length > 0) {
+    const divider = document.createElement("tr");
+    divider.className = "group-divider";
+    const cell = document.createElement("td");
+    cell.colSpan = 7;
+    cell.textContent = "以下为域名规则（匹配顺序在全部网址规则之后）";
+    divider.append(cell);
+    rulesBody.append(divider);
   }
+  for (const rule of settings.domainRules) rulesBody.append(buildRow("domainRules", rule));
+}
 
-  function resetForm() {
-    editingId = null;
-    config.clear();
-    clearFieldError();
-    updateFormMode();
-    render();
-  }
+function validateRuleByKind(kind, candidate) {
+  return (kind === "urlRules" ? LinkTabsRules.validateUrlRule : LinkTabsRules.validateDomainRule)(candidate);
+}
 
-  function startEdit(rule) {
-    editingId = rule.id;
-    config.apply(rule);
-    clearFieldError();
-    updateFormMode();
-    config.focus();
-    render();
-  }
-
-  function buildButton(operation, label, rule, disabled) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "rule-button";
-    button.dataset.operation = operation;
-    button.textContent = label;
-    button.disabled = disabled;
-    button.setAttribute("aria-label", `${label}：${config.describe(rule)}`);
-    return button;
-  }
-
-  function render() {
-    if (settings === null) return;
-    const rules = settings[config.kind];
-    if (editingId !== null && !rules.some(rule => rule.id === editingId)) {
-      // 正在编辑的规则已不存在（例如在另一个标签页中被删除），退出编辑状态。
-      editingId = null;
-      config.clear();
-      clearFieldError();
-      updateFormMode();
-    }
-    config.list.textContent = "";
-    if (rules.length === 0) {
-      const empty = document.createElement("li");
-      empty.className = "rule-empty";
-      empty.textContent = config.emptyText;
-      config.list.append(empty);
-      return;
-    }
-    rules.forEach((rule, index) => {
-      const item = document.createElement("li");
-      item.className = "rule";
-      item.dataset.id = rule.id;
-      if (rule.id === editingId) item.classList.add("editing");
-
-      const text = document.createElement("span");
-      text.className = "rule-text";
-      const value = document.createElement("span");
-      value.className = "rule-value";
-      value.textContent = config.describe(rule) + describeRuleFunctions(rule);
-      const action = document.createElement("span");
-      action.className = "rule-action";
-      action.textContent = ACTION_LABELS[rule.action] || rule.action;
-      text.append(value, action);
-
-      const actions = document.createElement("span");
-      actions.className = "rule-actions";
-      actions.append(
-        buildButton("edit", "编辑", rule, false),
-        buildButton("up", "上移", rule, index === 0),
-        buildButton("down", "下移", rule, index === rules.length - 1),
-        buildButton("delete", "删除", rule, false)
-      );
-
-      item.append(text, actions);
-      config.list.append(item);
-    });
-  }
-
-  config.list.addEventListener("click", async event => {
-    const button = event.target.closest("button[data-operation]");
-    const item = button === null ? null : button.closest("li[data-id]");
-    if (item === null) return;
-    const id = item.dataset.id;
-    const operation = button.dataset.operation;
-    if (operation === "edit") {
-      const rule = settings[config.kind].find(candidate => candidate.id === id);
-      if (rule) startEdit(rule);
-    } else if (operation === "up" || operation === "down") {
-      await persist(current => withMovedRule(current, config.kind, id, operation === "up" ? -1 : 1));
-    } else if (operation === "delete") {
-      await persist(current => withDeletedRule(current, config.kind, id));
-    }
-  });
-
-  config.form.addEventListener("submit", async event => {
-    event.preventDefault();
-    // 保存期间忽略重复提交（例如快速双击），避免同一条规则被追加两次。
-    if (saving) return;
-    const candidate = config.collect();
-    const result = config.validate(candidate);
+rulesBody.addEventListener("change", async event => {
+  const box = event.target.closest("input[type=checkbox][data-flag]");
+  if (box === null) return;
+  const row = box.closest("tr[data-id]");
+  const kind = row.dataset.kind;
+  const id = row.dataset.id;
+  const flag = box.dataset.flag;
+  const checked = box.checked;
+  // 校验针对读取到的最新规则：即使另一个标签页刚改过同一条规则，也不会把
+  // “一个功能都不勾”的规则写进存储（normalizeSettings 会丢弃这种规则）。
+  let invalidMessage = null;
+  const saved = await persist(current => {
+    const fresh = current[kind].find(candidate => candidate.id === id);
+    if (!fresh) return current;
+    const candidate = { ...fresh, [flag]: checked };
+    const result = validateRuleByKind(kind, candidate);
     if (!result.valid) {
-      // 无效输入只提示原因，不写入存储。
-      showFieldError(result.error);
-      return;
+      invalidMessage = result.error;
+      return current;
     }
-    clearFieldError();
-    const id = editingId;
-    saving = true;
-    config.submit.disabled = true;
-    let saved = false;
-    try {
-      saved = await persist(current => (id === null
-        ? withAddedRule(current, config.kind, candidate)
-        : withUpdatedRule(current, config.kind, id, candidate)));
-    } finally {
-      saving = false;
-      config.submit.disabled = false;
-    }
-    if (saved) resetForm();
+    return withUpdatedRuleFlag(current, kind, id, flag, checked);
   });
+  if (!saved || invalidMessage !== null) {
+    box.checked = !checked;
+  }
+  if (invalidMessage !== null) {
+    showStatus(invalidMessage, true);
+  }
+});
 
-  config.cancel.addEventListener("click", () => resetForm());
+rulesBody.addEventListener("click", async event => {
+  const button = event.target.closest("button[data-delete]");
+  if (button === null) return;
+  const row = button.closest("tr[data-id]");
+  await persist(current => withDeletedRule(current, row.dataset.kind, row.dataset.id));
+});
 
-  updateFormMode();
-  return { render };
+for (const [flag, box] of Object.entries(headerSwitches)) {
+  box.addEventListener("change", async () => {
+    const saved = await persist(current => withSwitch(current, COLUMNS[flag], box.checked));
+    if (!saved) box.checked = !box.checked;
+  });
 }
 
-const domainFields = {
-  input: byId("domain-input"),
-  subdomains: byId("domain-subdomains"),
-  action: byId("domain-action"),
-  click: byId("domain-click"),
-  drag: byId("domain-drag"),
-  search: byId("domain-search")
-};
+// ===== 添加规则弹窗 =====
 
-const urlFields = {
-  pattern: byId("url-pattern"),
-  action: byId("url-action"),
-  click: byId("url-click"),
-  drag: byId("url-drag"),
-  search: byId("url-search")
-};
+function updateTypeFields() {
+  const isUrl = typeSelect.value === "urlRules";
+  urlFields.hidden = !isUrl;
+  domainFields.hidden = isUrl;
+  subdomainsField.hidden = isUrl;
+}
 
-const controllers = [
-  createRuleController({
-    kind: "domainRules",
-    list: byId("domain-list"),
-    form: byId("domain-form"),
-    submit: byId("domain-submit"),
-    cancel: byId("domain-cancel"),
-    error: byId("domain-error"),
-    emptyText: "暂无域名规则。",
-    validate: LinkTabsRules.validateDomainRule,
-    collect() {
-      // 域名不区分大小写，统一小写后再校验，界面与存储保持一致。
-      return {
-        domain: domainFields.input.value.trim().toLowerCase(),
-        includeSubdomains: domainFields.subdomains.checked,
-        action: domainFields.action.value,
-        click: domainFields.click.checked,
-        drag: domainFields.drag.checked,
-        search: domainFields.search.checked
+function showDialogError(message) {
+  if (message) {
+    dialogError.textContent = message;
+    dialogError.hidden = false;
+  } else {
+    dialogError.hidden = true;
+  }
+}
+
+function resetDialogForm() {
+  typeSelect.value = "urlRules";
+  patternInput.value = "";
+  domainInput.value = "";
+  subdomainsCheckbox.checked = false;
+  ruleActionSelect.value = "background";
+  for (const box of Object.values(applyBoxes)) box.checked = true;
+  updateTypeFields();
+  showDialogError(null);
+}
+
+byId("open-add-dialog").addEventListener("click", () => {
+  resetDialogForm();
+  addDialog.showModal();
+});
+
+byId("add-cancel").addEventListener("click", () => addDialog.close());
+
+typeSelect.addEventListener("change", () => {
+  updateTypeFields();
+  showDialogError(null);
+});
+
+addForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  // 保存期间忽略重复提交（例如快速双击），避免同一条规则被追加两次。
+  if (dialogSaving) return;
+  const kind = typeSelect.value;
+  const functions = {
+    action: ruleActionSelect.value,
+    click: applyBoxes.click.checked,
+    drag: applyBoxes.drag.checked,
+    search: applyBoxes.search.checked
+  };
+  const candidate = kind === "urlRules"
+    ? { pattern: patternInput.value.trim(), ...functions }
+    : {
+        domain: domainInput.value.trim().toLowerCase(),
+        includeSubdomains: subdomainsCheckbox.checked,
+        ...functions
       };
-    },
-    apply(rule) {
-      domainFields.input.value = rule.domain;
-      domainFields.subdomains.checked = rule.includeSubdomains === true;
-      domainFields.action.value = rule.action;
-      domainFields.click.checked = rule.click;
-      domainFields.drag.checked = rule.drag;
-      domainFields.search.checked = rule.search;
-    },
-    clear() {
-      domainFields.input.value = "";
-      domainFields.subdomains.checked = false;
-      domainFields.action.value = "background";
-      domainFields.click.checked = true;
-      domainFields.drag.checked = true;
-      domainFields.search.checked = true;
-    },
-    focus() {
-      domainFields.input.focus();
-    },
-    describe(rule) {
-      return rule.includeSubdomains ? `${rule.domain}（含子域名）` : rule.domain;
-    }
-  }),
-  createRuleController({
-    kind: "urlRules",
-    list: byId("url-list"),
-    form: byId("url-form"),
-    submit: byId("url-submit"),
-    cancel: byId("url-cancel"),
-    error: byId("url-error"),
-    emptyText: "暂无网址规则。",
-    validate: LinkTabsRules.validateUrlRule,
-    collect() {
-      // 路径区分大小写，只去掉首尾空白。
-      return {
-        pattern: urlFields.pattern.value.trim(),
-        action: urlFields.action.value,
-        click: urlFields.click.checked,
-        drag: urlFields.drag.checked,
-        search: urlFields.search.checked
-      };
-    },
-    apply(rule) {
-      urlFields.pattern.value = rule.pattern;
-      urlFields.action.value = rule.action;
-      urlFields.click.checked = rule.click;
-      urlFields.drag.checked = rule.drag;
-      urlFields.search.checked = rule.search;
-    },
-    clear() {
-      urlFields.pattern.value = "";
-      urlFields.action.value = "background";
-      urlFields.click.checked = true;
-      urlFields.drag.checked = true;
-      urlFields.search.checked = true;
-    },
-    focus() {
-      urlFields.pattern.focus();
-    },
-    describe(rule) {
-      return rule.pattern;
-    }
-  })
-];
+  const validate = kind === "urlRules" ? LinkTabsRules.validateUrlRule : LinkTabsRules.validateDomainRule;
+  const result = validate(candidate);
+  if (!result.valid) {
+    // 无效输入只在弹窗内提示，不写入存储。
+    showDialogError(result.error);
+    return;
+  }
+  showDialogError(null);
+  dialogSaving = true;
+  addSubmit.disabled = true;
+  let saved = false;
+  try {
+    saved = await persist(current => withAddedRule(current, kind, candidate));
+  } finally {
+    dialogSaving = false;
+    addSubmit.disabled = false;
+  }
+  if (saved) addDialog.close();
+});
 
 // ===== 页面装配 =====
 
 function renderAll() {
+  if (settings === null) return;
   defaultActionSelect.value = settings.defaultAction;
-  searchEngineSelect.value = settings.searchEngine;
-  toggleClick.checked = settings.clickEnabled;
-  toggleLinkDrag.checked = settings.linkDragEnabled;
-  toggleTextDrag.checked = settings.textDragEnabled;
-  for (const controller of controllers) controller.render();
+  for (const [flag, box] of Object.entries(headerSwitches)) {
+    box.checked = settings[COLUMNS[flag]] === true;
+  }
+  renderTable();
 }
 
 defaultActionSelect.addEventListener("change", async () => {
@@ -389,25 +364,6 @@ defaultActionSelect.addEventListener("change", async () => {
     defaultActionSelect.value = settings.defaultAction;
   }
 });
-
-searchEngineSelect.addEventListener("change", async () => {
-  const saved = await persist(current => withSearchEngine(current, searchEngineSelect.value));
-  if (!saved) {
-    searchEngineSelect.value = settings.searchEngine;
-  }
-});
-
-/** 绑定一个功能开关复选框；保存失败时恢复为存储中的值。 */
-function bindToggle(element, settingName) {
-  element.addEventListener("change", async () => {
-    const saved = await persist(current => withSwitch(current, settingName, element.checked));
-    if (!saved) element.checked = settings[settingName];
-  });
-}
-
-bindToggle(toggleClick, "clickEnabled");
-bindToggle(toggleLinkDrag, "linkDragEnabled");
-bindToggle(toggleTextDrag, "textDragEnabled");
 
 async function loadSettings() {
   try {

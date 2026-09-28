@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "后台新标签页",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "permissions": ["storage"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "src/background/service-worker.js" },

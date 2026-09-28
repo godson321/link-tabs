@@ -10,7 +10,7 @@
     <header class="page-header">
       <h1>后台新标签页</h1>
       <p class="subtitle">
-        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关在工具栏弹窗中。
+        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关与搜索引擎在工具栏弹窗中。
       </p>
     </header>
 
@@ -25,104 +25,99 @@
     </section>
 
     <section class="card">
-      <h2>功能开关</h2>
-      <div class="field field-checkbox">
-        <input id="toggle-click" type="checkbox">
-        <label for="toggle-click">左键点击链接</label>
-      </div>
-      <div class="field field-checkbox">
-        <input id="toggle-link-drag" type="checkbox">
-        <label for="toggle-link-drag">拖动链接到页面空白处松手</label>
-      </div>
-      <div class="field field-checkbox">
-        <input id="toggle-text-drag" type="checkbox">
-        <label for="toggle-text-drag">拖动选中的文字到页面空白处松手（搜索）</label>
-      </div>
-    </section>
+      <h2>规则</h2>
+      <p class="hint">按顺序匹配，<strong>第一条命中的规则生效</strong>：先检查全部网址规则，再检查域名规则；表格按此顺序排列。拖动文字搜索按当前所在页面的网址/域名匹配。</p>
+      <p class="hint">动作：<span class="action-badge" title="后台新标签页">后</span> = 后台新标签页，<span class="action-badge" title="前台新标签页">前</span> = 前台新标签页，<span class="action-badge" title="按浏览器原行为">原</span> = 按浏览器原行为。列头：点击 = 点击链接；拖链接 = 拖动链接到空白处松手；拖文字 = 拖动选中的文字搜索（按当前页面匹配）；列头复选框 = 该功能的全局启停。</p>
 
-    <section class="card">
-      <h2>搜索引擎</h2>
-      <p class="hint">拖动选中的文字搜索时使用的搜索引擎。</p>
-      <div class="field">
-        <label for="search-engine">搜索引擎</label>
-        <select id="search-engine"></select>
+      <div class="rules-toolbar">
+        <button type="button" id="open-add-dialog">添加规则</button>
       </div>
-    </section>
 
-    <section class="card">
-      <h2>域名规则</h2>
-      <p class="hint">默认只匹配完全相同的域名；勾选“包含子域名”后，该域名的所有子域名也一起匹配。</p>
-      <form id="domain-form" class="rule-form" novalidate>
-        <div class="field">
-          <label for="domain-input">域名</label>
-          <input id="domain-input" type="text" placeholder="example.com" autocomplete="off"
-                 spellcheck="false" aria-describedby="domain-error">
-        </div>
-        <div class="field field-checkbox">
-          <input id="domain-subdomains" type="checkbox">
-          <label for="domain-subdomains">包含子域名</label>
-        </div>
-        <div class="field">
-          <label for="domain-action">动作</label>
-          <select id="domain-action" data-action-select></select>
-        </div>
-        <p class="hint">这条规则作用于：</p>
-        <div class="field field-checkbox">
-          <input id="domain-click" type="checkbox">
-          <label for="domain-click">点击链接</label>
-        </div>
-        <div class="field field-checkbox">
-          <input id="domain-drag" type="checkbox">
-          <label for="domain-drag">拖动链接</label>
-        </div>
-        <div class="field field-checkbox">
-          <input id="domain-search" type="checkbox">
-          <label for="domain-search">拖动文字搜索（按当前页面匹配）</label>
-        </div>
-        <div class="form-actions">
-          <button type="submit" id="domain-submit">添加规则</button>
-          <button type="button" id="domain-cancel" class="secondary-button" hidden>取消编辑</button>
-        </div>
-        <p id="domain-error" class="field-error" role="alert" hidden></p>
-      </form>
-      <ol id="domain-list" class="rule-list" aria-label="域名规则列表"></ol>
-    </section>
-
-    <section class="card">
-      <h2>网址规则</h2>
-      <p class="hint">填写 http:// 或 https:// 开头的模式，<code>*</code> 匹配零个或多个字符，例如 <code>https://example.com/private/*</code>。</p>
-      <form id="url-form" class="rule-form" novalidate>
-        <div class="field">
-          <label for="url-pattern">网址模式</label>
-          <input id="url-pattern" type="text" placeholder="https://example.com/path/*" autocomplete="off"
-                 spellcheck="false" aria-describedby="url-error">
-        </div>
-        <div class="field">
-          <label for="url-action">动作</label>
-          <select id="url-action" data-action-select></select>
-        </div>
-        <p class="hint">这条规则作用于：</p>
-        <div class="field field-checkbox">
-          <input id="url-click" type="checkbox">
-          <label for="url-click">点击链接</label>
-        </div>
-        <div class="field field-checkbox">
-          <input id="url-drag" type="checkbox">
-          <label for="url-drag">拖动链接</label>
-        </div>
-        <div class="field field-checkbox">
-          <input id="url-search" type="checkbox">
-          <label for="url-search">拖动文字搜索（按当前页面匹配）</label>
-        </div>
-        <div class="form-actions">
-          <button type="submit" id="url-submit">添加规则</button>
-          <button type="button" id="url-cancel" class="secondary-button" hidden>取消编辑</button>
-        </div>
-        <p id="url-error" class="field-error" role="alert" hidden></p>
-      </form>
-      <ol id="url-list" class="rule-list" aria-label="网址规则列表"></ol>
+      <table class="rules-table" id="rules-table">
+        <colgroup>
+          <col style="width: 52px;">
+          <col>
+          <col style="width: 46px;">
+          <col style="width: 56px;">
+          <col style="width: 56px;">
+          <col style="width: 56px;">
+          <col style="width: 46px;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>规则</th>
+            <th class="center">动作</th>
+            <th class="center" data-column="click" title="点击链接"><span class="col-name">点击</span><span class="sub"><input type="checkbox" id="header-click" title="全局启用：点击链接" aria-label="全局启用：点击链接"></span></th>
+            <th class="center" data-column="drag" title="拖动链接到页面空白处松手"><span class="col-name">拖链接</span><span class="sub"><input type="checkbox" id="header-drag" title="全局启用：拖动链接" aria-label="全局启用：拖动链接"></span></th>
+            <th class="center" data-column="search" title="拖动选中的文字搜索（按当前页面匹配）"><span class="col-name">拖文字</span><span class="sub"><input type="checkbox" id="header-search" title="全局启用：拖动文字搜索" aria-label="全局启用：拖动文字搜索"></span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="rules-body"></tbody>
+      </table>
     </section>
   </main>
+
+  <dialog class="rule-dialog" id="add-dialog" aria-labelledby="add-dialog-title">
+    <h2 id="add-dialog-title">添加规则</h2>
+    <form id="add-form" novalidate>
+      <div class="field">
+        <label for="rule-type">类型</label>
+        <select id="rule-type">
+          <option value="urlRules">网址规则</option>
+          <option value="domainRules">域名规则</option>
+        </select>
+      </div>
+      <div class="field" id="url-fields">
+        <label for="rule-pattern">网址模式</label>
+        <input id="rule-pattern" type="text" placeholder="https://example.com/path/*" autocomplete="off"
+               spellcheck="false" aria-describedby="dialog-error">
+      </div>
+      <div class="field" id="domain-fields" hidden>
+        <label for="rule-domain">域名</label>
+        <input id="rule-domain" type="text" placeholder="example.com" autocomplete="off"
+               spellcheck="false" aria-describedby="dialog-error">
+      </div>
+      <div class="field field-checkbox" id="subdomains-field" hidden>
+        <input id="rule-subdomains" type="checkbox">
+        <label for="rule-subdomains">包含子域名</label>
+      </div>
+      <div class="field">
+        <label for="rule-action">动作</label>
+        <select id="rule-action" data-action-select></select>
+      </div>
+      <p class="group-label">作用于：</p>
+      <div class="field field-checkbox">
+        <input id="apply-click" type="checkbox" checked>
+        <label for="apply-click">点击链接</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="apply-drag" type="checkbox" checked>
+        <label for="apply-drag">拖动链接</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="apply-search" type="checkbox" checked>
+        <label for="apply-search">拖动文字搜索（按当前页面匹配）</label>
+      </div>
+      <p id="dialog-error" class="field-error" role="alert" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" id="add-cancel">取消</button>
+        <button type="submit" id="add-submit">添加规则</button>
+      </div>
+    </form>
+  </dialog>
+
+  <template id="trash-icon">
+    <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M2.5 4.5h11"></path>
+      <path d="M6.5 2.5h3"></path>
+      <path d="M4 4.5l.7 8.1a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.1"></path>
+      <path d="M6.6 7v4"></path>
+      <path d="M9.4 7v4"></path>
+    </svg>
+  </template>
+
   <script src="../shared/rules.js"></script>
   <script src="../shared/settings.js"></script>
   <script src="options.js"></script>

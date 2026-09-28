@@ -8,7 +8,6 @@
   --accent: #0f6cbd;
   --accent-fg: #ffffff;
   --error: #b3261e;
-  --mark: #eaf3fb;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -22,7 +21,6 @@
     --accent: #4aa3ea;
     --accent-fg: #10243a;
     --error: #f2b8b5;
-    --mark: #23384c;
   }
 }
 
@@ -40,7 +38,7 @@ body {
 }
 
 .page {
-  max-width: 760px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 24px 20px 48px;
   display: flex;
@@ -140,11 +138,6 @@ body {
   accent-color: var(--accent);
 }
 
-.form-actions {
-  display: flex;
-  gap: 8px;
-}
-
 button {
   padding: 6px 14px;
   border: 1px solid transparent;
@@ -164,15 +157,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.secondary-button,
-.rule-button {
+.secondary-button {
   background: transparent;
   border-color: var(--border);
   color: var(--fg);
 }
 
-.secondary-button:hover,
-.rule-button:hover:not(:disabled) {
+.secondary-button:hover {
   border-color: var(--accent);
   color: var(--accent);
   filter: none;
@@ -184,13 +175,92 @@ button:disabled {
   font-size: 13px;
 }
 
-.rule-list {
-  margin: 16px 0 0;
-  padding: 0;
-  list-style: none;
+/* ===== 规则表格 ===== */
+
+.rules-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
+  justify-content: flex-end;
+  margin: 4px 0 8px;
+}
+
+.rules-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 13px;
+}
+
+.rules-table th,
+.rules-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 7px 8px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.rules-table th {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.rules-table th .sub {
+  display: block;
+  font-size: 11px;
+}
+
+.rules-table th .sub input[type="checkbox"] {
+  margin-top: 3px;
+}
+
+.rules-table td.center,
+.rules-table th.center {
+  text-align: center;
+}
+
+.rules-table input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.rules-table input[type="checkbox"]:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.rules-table .value {
+  font-family: Consolas, "Courier New", monospace;
+  word-break: break-all;
+}
+
+.rules-table .badge {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.action-badge {
+  display: inline-block;
+  min-width: 20px;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 12px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.group-divider td {
+  color: var(--muted);
+  font-size: 12px;
+  padding-top: 12px;
 }
 
 .rule-empty {
@@ -198,47 +268,68 @@ button:disabled {
   font-size: 13px;
 }
 
-.rule {
-  display: flex;
-  flex-wrap: wrap;
+/* 列头复选框取消后：该列名称变淡（行内勾选由 disabled 置灰）。 */
+table.col-click-off th[data-column="click"] .col-name,
+table.col-drag-off th[data-column="drag"] .col-name,
+table.col-search-off th[data-column="search"] .col-name {
+  opacity: 0.55;
+}
+
+.icon-button {
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
+  justify-content: center;
+  width: 28px;
+  height: 26px;
+  padding: 0;
   border: 1px solid var(--border);
   border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
 }
 
-.rule.editing {
-  border-color: var(--accent);
-  background: var(--mark);
+.icon-button:hover {
+  border-color: var(--error);
+  color: var(--error);
+  filter: none;
 }
 
-.rule-text {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
+/* ===== 添加规则弹窗 ===== */
+
+dialog.rule-dialog {
+  width: 460px;
+  max-width: calc(100vw - 48px);
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
 }
 
-.rule-value {
-  font-family: Consolas, "Courier New", monospace;
-  word-break: break-all;
+dialog.rule-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
 }
 
-.rule-action {
+dialog.rule-dialog h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+dialog.rule-dialog .field input[type="text"],
+dialog.rule-dialog .field select {
+  max-width: none;
+}
+
+dialog.rule-dialog .group-label {
+  margin: 4px 0 6px;
   color: var(--muted);
   font-size: 13px;
-  white-space: nowrap;
 }
 
-.rule-actions {
+.dialog-actions {
   display: flex;
-  gap: 6px;
-}
-
-.rule-button {
-  padding: 3px 10px;
-  font-size: 13px;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
 }

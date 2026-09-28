@@ -9,13 +9,14 @@
 
 const ACTIONS = Object.freeze(["background", "foreground", "native"]);
 
-/** 拖动选中的文字去搜索时可选用的搜索引擎；默认 Bing（Edge 自带默认）。 */
-const SEARCH_ENGINES = Object.freeze(["bing", "google", "baidu"]);
+/** 拖动选中的文字去搜索时可选用的搜索引擎；默认 Bing（Edge 自带默认），custom 使用自定义地址。 */
+const SEARCH_ENGINES = Object.freeze(["bing", "google", "baidu", "custom"]);
 
+/** 预设引擎的搜索地址模板；`%s` 为搜索词占位符。 */
 const SEARCH_ENGINE_URLS = Object.freeze({
-  bing: "https://www.bing.com/search?q=",
-  google: "https://www.google.com/search?q=",
-  baidu: "https://www.baidu.com/s?wd="
+  bing: "https://www.bing.com/search?q=%s",
+  google: "https://www.google.com/search?q=%s",
+  baidu: "https://www.baidu.com/s?wd=%s"
 });
 
 /** 三块可独立配置的功能；规则中的勾选字段与设置中的功能开关字段一一对应。 */
@@ -38,6 +39,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   defaultAction: "background",
   searchEngine: "bing",
+  searchUrl: "",
   clickEnabled: true,
   linkDragEnabled: true,
   textDragEnabled: true,
@@ -493,6 +495,11 @@ function normalizeSettings(rawSettings) {
   const searchEngine = SEARCH_ENGINES.includes(raw.searchEngine)
     ? raw.searchEngine
     : DEFAULT_SETTINGS.searchEngine;
+  const searchUrl = typeof raw.searchUrl === "string" ? raw.searchUrl.trim() : DEFAULT_SETTINGS.searchUrl;
+  // “自定义”引擎必须带合法模板（http(s) 且含 %s），否则回退到默认引擎，避免搜索时构造出坏地址。
+  const effectiveEngine = searchEngine === "custom" && !validateSearchUrl(searchUrl).valid
+    ? DEFAULT_SETTINGS.searchEngine
+    : searchEngine;
   const functions = {};
   for (const name of FUNCTIONS) {
     const switchName = FUNCTION_SWITCHES[name];
@@ -506,12 +513,26 @@ function normalizeSettings(rawSettings) {
   const urlRules = Array.isArray(raw.urlRules)
     ? raw.urlRules.map(normalizeUrlRule).filter(Boolean)
     : [];
-  return { enabled, defaultAction, searchEngine, ...functions, domainRules, urlRules };
+  return { enabled, defaultAction, searchEngine: effectiveEngine, searchUrl, ...functions, domainRules, urlRules };
 }
 
-/** 按所选搜索引擎构造搜索网址；引擎取值由 normalizeSettings 保证合法。 */
-function buildSearchUrl(text, engine) {
-  return SEARCH_ENGINE_URLS[engine] + encodeURIComponent(text);
+/** 校验自定义搜索地址：必须是 http(s) 开头且包含 %s 占位符。 */
+function validateSearchUrl(url) {
+  if (typeof url !== "string" || !/^https?:\/\//.test(url)) {
+    return { valid: false, error: "搜索地址必须使用 http:// 或 https:// 开头" };
+  }
+  if (!url.includes("%s")) {
+    return { valid: false, error: "搜索地址必须包含 %s（搜索词占位符）" };
+  }
+  return { valid: true };
+}
+
+/** 按归一化后的设置构造搜索网址；预设引擎与自定义模板都以 %s 为搜索词占位符。 */
+function buildSearchUrl(text, settings) {
+  const template = settings.searchEngine === "custom"
+    ? settings.searchUrl
+    : SEARCH_ENGINE_URLS[settings.searchEngine];
+  return template.replace("%s", encodeURIComponent(text));
 }
 
 /**
@@ -568,10 +589,12 @@ function resolveAction(url, settings, use = "click") {
 const LinkTabsRules = {
   ACTIONS,
   SEARCH_ENGINES,
+  SEARCH_ENGINE_URLS,
   DEFAULT_SETTINGS,
   normalizeSettings,
   validateDomainRule,
   validateUrlRule,
+  validateSearchUrl,
   resolveAction,
   buildSearchUrl
 };

@@ -189,6 +189,6 @@ document.addEventListener("dragend", event => {
 
   const url = dragged.kind === "link"
     ? dragged.href
-    : LinkTabsRules.buildSearchUrl(dragged.text, currentSettings.searchEngine);
+    : LinkTabsRules.buildSearchUrl(dragged.text, currentSettings);
   requestOpenLinkTab(url, action);
 }, true);

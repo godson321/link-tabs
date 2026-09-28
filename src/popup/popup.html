@@ -13,6 +13,16 @@
       <span class="switch-label">启用扩展</span>
     </label>
     <p id="status" class="status" role="status" aria-live="polite"></p>
+    <hr class="divider">
+    <div class="field">
+      <label for="search-engine">搜索引擎</label>
+      <select id="search-engine" disabled></select>
+    </div>
+    <div class="field">
+      <label for="search-url">搜索地址（%s 替换为搜索词）</label>
+      <input id="search-url" type="text" spellcheck="false" autocomplete="off" disabled>
+    </div>
+    <p id="search-error" class="field-error" role="alert" hidden></p>
     <button type="button" id="open-options" class="secondary-button">设置</button>
   </main>
   <script src="../shared/rules.js"></script>

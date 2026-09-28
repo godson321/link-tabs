@@ -7,6 +7,7 @@ const {
   resolveAction,
   validateDomainRule,
   validateUrlRule,
+  validateSearchUrl,
   SEARCH_ENGINES,
   buildSearchUrl
 } = require("../src/shared/rules.js");
@@ -533,15 +534,38 @@ test("校验失败给出可区分的具体原因", () => {
 
 test("搜索引擎默认为 Bing 且非法取值回退", () => {
   assert.equal(DEFAULT_SETTINGS.searchEngine, "bing");
-  assert.deepEqual(SEARCH_ENGINES, ["bing", "google", "baidu"]);
+  assert.equal(DEFAULT_SETTINGS.searchUrl, "");
+  assert.deepEqual(SEARCH_ENGINES, ["bing", "google", "baidu", "custom"]);
   assert.equal(normalizeSettings({}).searchEngine, "bing");
   assert.equal(normalizeSettings({ searchEngine: "baidu" }).searchEngine, "baidu");
   assert.equal(normalizeSettings({ searchEngine: "duckduckgo" }).searchEngine, "bing");
 });
 test("按所选搜索引擎构造搜索网址并编码查询", () => {
-  assert.equal(buildSearchUrl("hello world", "bing"), "https://www.bing.com/search?q=hello%20world");
-  assert.equal(buildSearchUrl("中文&词", "google"), "https://www.google.com/search?q=" + encodeURIComponent("中文&词"));
-  assert.equal(buildSearchUrl("测试", "baidu"), "https://www.baidu.com/s?wd=" + encodeURIComponent("测试"));
+  const preset = name => normalizeSettings({ searchEngine: name });
+  assert.equal(buildSearchUrl("hello world", preset("bing")), "https://www.bing.com/search?q=hello%20world");
+  assert.equal(buildSearchUrl("中文&词", preset("google")), "https://www.google.com/search?q=" + encodeURIComponent("中文&词"));
+  assert.equal(buildSearchUrl("测试", preset("baidu")), "https://www.baidu.com/s?wd=" + encodeURIComponent("测试"));
+});
+test("自定义搜索引擎使用自定义地址模板", () => {
+  const settings = normalizeSettings({ searchEngine: "custom", searchUrl: "https://s.example.com/find?query=%s&lang=zh" });
+  assert.equal(settings.searchEngine, "custom");
+  assert.equal(buildSearchUrl("a b", settings), "https://s.example.com/find?query=a%20b&lang=zh");
+});
+test("自定义地址非法时回退默认引擎", () => {
+  assert.equal(normalizeSettings({ searchEngine: "custom", searchUrl: "https://s.example.com/find" }).searchEngine, "bing");
+  assert.equal(normalizeSettings({ searchEngine: "custom", searchUrl: "ftp://s.example.com/?q=%s" }).searchEngine, "bing");
+  assert.equal(normalizeSettings({ searchEngine: "custom", searchUrl: "" }).searchEngine, "bing");
+  assert.equal(validateSearchUrl("https://s.example.com/?q=%s").valid, true);
+  assert.equal(validateSearchUrl("https://s.example.com/?q=").valid, false);
+  assert.equal(validateSearchUrl(42).valid, false);
+});
+test("自定义模板只替换第一个 %s，预设引擎保留存储的 searchUrl", () => {
+  const custom = normalizeSettings({ searchEngine: "custom", searchUrl: "https://s.example.com/?q=%s&x=%s" });
+  // 约定：只替换第一个 %s，其余保持字面（写多个占位符没有额外含义）。
+  assert.equal(buildSearchUrl("a", custom), "https://s.example.com/?q=a&x=%s");
+  const preset = normalizeSettings({ searchEngine: "google", searchUrl: "https://kept.example.com/?q=%s" });
+  assert.equal(preset.searchEngine, "google");
+  assert.equal(preset.searchUrl, "https://kept.example.com/?q=%s");
 });
 
 // ===== 三块功能独立配置（点击链接 / 拖动链接 / 拖动文字搜索） =====
