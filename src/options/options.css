@@ -62,14 +62,48 @@ body {
   color: var(--muted);
 }
 
+/* 保存 / 错误提示：固定在窗口底部，页面滚到哪儿都看得见；没有内容时不占位、不显示。 */
 .status {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 10;
   margin: 0;
-  min-height: 1.5em;
-  color: var(--muted);
+  max-width: min(560px, calc(100vw - 32px));
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  color: var(--fg);
+  /* 提示只是反馈，不能挡住它下方控件的点击。 */
+  pointer-events: none;
+}
+
+/* 没有内容时不可见，但保留在无障碍树里，保证读屏能播报内容变化。 */
+.status:empty {
+  opacity: 0;
+}
+
+.status.pop {
+  animation: status-pop 0.18s ease-out;
 }
 
 .status.error {
   color: var(--error);
+  border-color: var(--error);
+}
+
+@keyframes status-pop {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
 
 .card {

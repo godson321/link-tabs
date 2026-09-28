@@ -76,6 +76,11 @@ const applyBoxes = {
 /** 已加载的设置；读取失败时保持 null，页面控件保持禁用。 */
 let settings = null;
 let dialogSaving = false;
+/** 提示自动消失的计时器；错误提示停留更久，避免用户错过。 */
+let statusTimer = null;
+
+const STATUS_VISIBLE_MS = 2500;
+const STATUS_ERROR_VISIBLE_MS = 6000;
 
 /** 动作下拉框的选项由 LinkTabsRules.ACTIONS 生成，界面不会出现解析器不支持的动作。 */
 for (const select of document.querySelectorAll("select[data-action-select]")) {
@@ -95,9 +100,22 @@ for (const engine of LinkTabsRules.SEARCH_ENGINES) {
   searchEngineSelect.append(option);
 }
 
-function showStatus(message, isError = false) {
+/**
+ * 显示提示。`sticky` 用于持续故障（例如设置读不出来、页面控件会一直禁用）：
+ * 这类提示不能自动消失，否则用户看到的是一整页没有说明的禁用控件。
+ */
+function showStatus(message, isError = false, sticky = false) {
   pageStatus.textContent = message;
   pageStatus.classList.toggle("error", isError);
+  // 重新播放出现动画：连续保存时提示已在屏幕上，也要让用户看到这次也有反馈。
+  pageStatus.classList.remove("pop");
+  void pageStatus.offsetWidth;
+  pageStatus.classList.add("pop");
+  clearTimeout(statusTimer);
+  if (sticky) return;
+  statusTimer = setTimeout(() => {
+    pageStatus.textContent = "";
+  }, isError ? STATUS_ERROR_VISIBLE_MS : STATUS_VISIBLE_MS);
 }
 
 function showSearchError(message) {
@@ -393,7 +411,12 @@ addForm.addEventListener("submit", async event => {
     dialogSaving = false;
     addSubmit.disabled = false;
   }
-  if (saved) addDialog.close();
+  if (saved) {
+    addDialog.close();
+  } else {
+    // 页面级提示在弹窗打开时会被背板压暗，弹窗内再提示一次。
+    showDialogError("保存失败，规则未添加");
+  }
 });
 
 // ===== 页面装配 =====
@@ -485,7 +508,8 @@ async function loadSettings() {
     settings = await LinkTabsSettings.load();
   } catch (error) {
     console.error("Link Tabs:", error);
-    showStatus("无法读取设置：" + error, true);
+    // 控件会一直禁用，提示必须常驻，否则页面只剩一片没有说明的灰控件。
+    showStatus("无法读取设置：" + error, true, true);
     return;
   }
   setControlsEnabled(true);
