@@ -44,17 +44,27 @@ function resolveActionDiagnosed(url, use) {
   }
 }
 
+/** 扩展上下文是否仍有效（扩展被重新加载后，旧页面中的内容脚本会失效）。 */
+function isExtensionAlive() {
+  return Boolean(chrome.runtime?.id);
+}
+
 /** 请求 Service worker 按动作打开链接；失败时仅记录诊断，不改写动作。 */
 function requestOpenLinkTab(url, action) {
-  chrome.runtime.sendMessage({
-    type: "OPEN_LINK_TAB",
-    url,
-    action
-  })
-    .then(response => {
-      if (!response?.ok) console.error("Link Tabs:", response?.error);
+  try {
+    chrome.runtime.sendMessage({
+      type: "OPEN_LINK_TAB",
+      url,
+      action
     })
-    .catch(error => console.error("Link Tabs:", error));
+      .then(response => {
+        if (!response?.ok) console.error("Link Tabs:", response?.error);
+      })
+      .catch(error => console.error("Link Tabs:", error));
+  } catch (error) {
+    // 扩展恰在发送瞬间被重新加载：保持原生行为，仅记录诊断。
+    console.error("Link Tabs:", error);
+  }
 }
 
 LinkTabsSettings.load()
@@ -90,6 +100,11 @@ document.addEventListener("click", event => {
 
   const action = resolveActionDiagnosed(target.href, "click");
   if (action === null || action === "native") return;
+  if (!isExtensionAlive()) {
+    // 扩展已重新加载：不吞这次点击，保持浏览器原生导航，提示刷新页面。
+    console.error("Link Tabs: 扩展上下文已失效，已保持原生行为；刷新页面后恢复。");
+    return;
+  }
 
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -109,7 +124,11 @@ document.addEventListener("dragstart", event => {
   lastDragOverFrame = false;
   if (currentSettings === undefined) return;
 
-  const source = event.target instanceof Element ? event.target : null;
+  // 选区拖拽时 dragstart 的目标可能是文本节点而非元素，向上取到其所属元素；
+  // 否则 Element 判断会把所有“拖动选中文字”的拖拽都挡掉。
+  const source = event.target instanceof Element
+    ? event.target
+    : (event.target?.parentElement ?? null);
   const dragTypes = Array.from(event.dataTransfer?.types ?? []);
   const modifierPressed = event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
 
@@ -128,11 +147,6 @@ document.addEventListener("dragstart", event => {
     dragTypes,
     modifierPressed
   });
-  if (searchArmed) {
-    draggedTarget = { kind: "search", text: selectionText };
-    return;
-  }
-
   const anchor = source === null ? null : source.closest("a[href]");
   const linkArmed = LinkTabsDrag.shouldArmDrag({
     trusted: event.isTrusted,
@@ -141,6 +155,11 @@ document.addEventListener("dragstart", event => {
     dragTypes,
     modifierPressed
   });
+
+  if (searchArmed) {
+    draggedTarget = { kind: "search", text: selectionText };
+    return;
+  }
   if (!linkArmed) return;
 
   const target = resolveLinkTarget(anchor);
@@ -186,6 +205,11 @@ document.addEventListener("dragend", event => {
     dragged.kind === "link" ? "drag" : "search"
   );
   if (action === null || action === "native") return;
+  if (!isExtensionAlive()) {
+    // 扩展已重新加载：保持原生行为，提示刷新页面。
+    console.error("Link Tabs: 扩展上下文已失效，已保持原生行为；刷新页面后恢复。");
+    return;
+  }
 
   const url = dragged.kind === "link"
     ? dragged.href

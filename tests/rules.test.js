@@ -567,6 +567,13 @@ test("自定义模板只替换第一个 %s，预设引擎保留存储的 searchU
   assert.equal(preset.searchEngine, "google");
   assert.equal(preset.searchUrl, "https://kept.example.com/?q=%s");
 });
+test("本地页面（file://）上拖动文字搜索按全局默认行为处理", () => {
+  // 链接目标仍限 HTTP(S)；拖动文字搜索按当前页面匹配，本地页面命中不到规则时用默认行为。
+  assert.equal(resolveAction("file:///E:/doc/test.html", base, "search"), "background");
+  assert.equal(resolveAction("file:///E:/doc/test.html", base, "click"), "native");
+  assert.equal(resolveAction("file:///E:/doc/test.html", base, "drag"), "native");
+  assert.equal(resolveAction("file:///E:/doc/test.html", { ...base, textDragEnabled: false }, "search"), "native");
+});
 
 // ===== 三块功能独立配置（点击链接 / 拖动链接 / 拖动文字搜索） =====
 

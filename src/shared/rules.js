@@ -564,7 +564,11 @@ function resolveAction(url, settings, use = "click") {
   } catch {
     return "native";
   }
-  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "native";
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:" && use !== "search") {
+    // 链接目标必须为 HTTP(S)；拖动文字搜索传入的是当前页面地址，
+    // 本地页面（file://）同样按规则匹配（匹配不到时命中全局默认行为）。
+    return "native";
+  }
 
   const target = normalizeUrlForMatch(parsed.href);
   if (target === null) return "native";
