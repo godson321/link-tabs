@@ -337,13 +337,14 @@ function wildcardMatches(pattern, value) {
   let starIndex = -1;
   let starValueIndex = -1;
   while (valueIndex < value.length) {
-    if (pattern[patternIndex] === value[valueIndex]) {
-      patternIndex += 1;
-      valueIndex += 1;
-    } else if (pattern[patternIndex] === "*") {
+    // 星号分支须先于字面比较：字面比较对 `*` 也成立，先走它会让星号失去展开机会。
+    if (pattern[patternIndex] === "*") {
       starIndex = patternIndex;
       starValueIndex = valueIndex;
       patternIndex += 1;
+    } else if (pattern[patternIndex] === value[valueIndex]) {
+      patternIndex += 1;
+      valueIndex += 1;
     } else if (starIndex !== -1) {
       patternIndex = starIndex + 1;
       starValueIndex += 1;

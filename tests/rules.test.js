@@ -264,6 +264,44 @@ test("通配符匹配按字面处理正则元字符且星号可匹配空串", ()
   assert.equal(resolveAction("https://example.com/a/b", settings), "foreground");
   assert.equal(resolveAction("https://example.com/aXXb/b", settings), "foreground");
 });
+// 回归：模式中的 `*` 与 href 中的字面 `*` 对齐时，星号必须展开匹配，而不是被当作字面字符消费。
+test("星号与 href 中的字面星号对齐时仍可展开匹配", () => {
+  const settings = { ...base, defaultAction: "native",
+    urlRules: [{ pattern: "https://example.com/*", action: "foreground" }] };
+  assert.equal(resolveAction("https://example.com/*foo", settings), "foreground");
+  assert.equal(resolveAction("https://example.com/**", settings), "foreground");
+  assert.equal(resolveAction("https://example.com/a*b", settings), "foreground");
+  assert.equal(resolveAction("https://example.com/plain", settings), "foreground");
+  assert.equal(resolveAction("https://other.example/*foo", settings), "native");
+});
+// 匹配语义的随机对照：与参考实现（其余字符字面转义、`*` 转为 `.*`）在含字面星号的输入上保持一致。
+test("通配符匹配在含字面星号的输入上与参考实现一致", () => {
+  assert.equal(new URL("https://example.com/a*b**").href, "https://example.com/a*b**");
+  const chars = "ab*";
+  let seed = 1;
+  const next = (bound) => {
+    seed = (seed * 48271) % 2147483647;
+    return seed % bound;
+  };
+  const randomText = (maxLength) => {
+    let text = "";
+    const length = 1 + next(maxLength);
+    for (let index = 0; index < length; index += 1) text += chars[next(chars.length)];
+    return text;
+  };
+  const referenceMatches = (pattern, value) => {
+    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, (ch) => (ch === "*" ? ".*" : "\\" + ch));
+    return new RegExp("^" + escaped + "$").test(value);
+  };
+  for (let round = 0; round < 2000; round += 1) {
+    const pattern = "https://example.com/" + randomText(8);
+    const href = "https://example.com/" + randomText(16);
+    const settings = { ...base, defaultAction: "native",
+      urlRules: [{ pattern, action: "foreground" }] };
+    const expected = referenceMatches(pattern, href) ? "foreground" : "native";
+    assert.equal(resolveAction(href, settings), expected, `${pattern} vs ${href}`);
+  }
+});
 test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
   const normalized = normalizeSettings({
     ...base,
