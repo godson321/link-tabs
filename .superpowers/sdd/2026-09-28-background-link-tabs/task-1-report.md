@@ -246,7 +246,7 @@ false !== true
 
 - 状态：DONE
 - FIX_BASE：`b36184c2d95ccbb37978bf1b399f3f325f841202`
-- 修复提交：见本报告下方提交记录
+- 修复提交：`3d463b4` — `fix: honor wildcard authority expansions`
 - 覆盖文件：`src/shared/rules.js`、`tests/rules.test.js`
 
 ## 根因与修复
@@ -317,4 +317,4 @@ RangeError: Maximum call stack size exceeded
 - `git diff --check` 无空白错误（仅 Windows LF→CRLF 提示）。
 - 修复未改变规则匹配顺序、hostname/path 大小写规则或 domain 行为。
 - 端口存在性检查最多扫描 65,536 个短字符串；这是有限协议域的完整判定，不是输入长度上限。当前测试运行约 113 ms，无阻塞关注点。
-- 提交：待创建。
+- 修复提交 `3d463b4` 包含生产代码、回归测试及本轮报告初稿；后续仅以文档提交补录该哈希。
