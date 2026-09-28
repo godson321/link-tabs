@@ -1,7 +1,13 @@
 {
   "manifest_version": 3,
   "name": "开链助手",
-  "version": "1.4.2",
+  "version": "1.4.3",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": ["storage", "declarativeNetRequestWithHostAccess", "webNavigation"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "src/background/service-worker.js" },
@@ -20,7 +26,11 @@
   }],
   "action": {
     "default_title": "开链助手",
-    "default_popup": "src/popup/popup.html"
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   },
   "options_page": "src/options/options.html"
 }

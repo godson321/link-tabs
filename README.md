@@ -61,6 +61,10 @@
 
 扩展也无法作用于浏览器受保护的页面（如 `edge://` 页面和 Edge 加载项商店），并且只处理 `<a href>` 链接上的点击，不处理由按钮触发的脚本跳转。本地 `file://` 页面需在扩展详情页开启“允许访问文件 URL”后才会生效。
 
+## 图标
+
+扩展图标（`icons/`，16/32/48/128 PNG，蓝色圆角底板 + 白色链环图形，不含任何文字）由 `tools/` 中的流水线生成：图形本体是 `tools/icon-render.html`（纯 SVG），改完图形后按 `tools/make-icons.mjs` 头部注释里的命令渲染母图，再执行 `node tools/make-icons.mjs` 缩放输出。生成过程只用 Node 内置模块，无第三方依赖。
+
 ## 运行测试
 
 需要已安装 Node.js ≥ 18（测试使用 Node 内置测试运行器 `node --test`，无第三方依赖，无需 `npm install`；本项目在 Node.js v25 上验证通过）：
