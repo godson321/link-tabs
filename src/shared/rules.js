@@ -70,6 +70,23 @@ function validateDomainRule(rule) {
   return { valid: true };
 }
 
+/**
+ * 校验 URL 模式的 authority 结构，同时容纳 `*` 占位符。
+ *
+ * `*` 可以出现在主机或端口中，因此先把每个 `*` 替换为在这些位置都合法的
+ * 占位字符，再交给 URL 解析器校验整体结构：空格、非法端口、非法 IPv6 等
+ * 都会被解析器拒绝。
+ */
+function isValidUrlAuthority(authority) {
+  if (!authority || /[\s\\]/.test(authority)) return false;
+  try {
+    const probe = new URL("http://" + authority.replace(/\*/g, "0") + "/");
+    return probe.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
 function validateUrlRule(rule) {
   if (!isPlainObject(rule)) return { valid: false, error: "URL rule must be an object" };
   const pattern = typeof rule.pattern === "string" ? rule.pattern.trim() : "";
@@ -77,6 +94,9 @@ function validateUrlRule(rule) {
   const match = /^(https?):\/\/([^/?#]*)([\s\S]*)$/i.exec(pattern);
   if (!match) return { valid: false, error: "Pattern must be an HTTP or HTTPS URL" };
   if (match[2] === "") return { valid: false, error: "Pattern must include a host" };
+  if (!isValidUrlAuthority(match[2])) {
+    return { valid: false, error: "Pattern authority is invalid" };
+  }
   if (!isSupportedAction(rule.action)) return { valid: false, error: "Action is invalid" };
   return { valid: true };
 }
