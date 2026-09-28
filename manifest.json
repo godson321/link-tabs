@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "开链助手",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "permissions": ["storage", "declarativeNetRequestWithHostAccess", "webNavigation"],
   "host_permissions": ["http://*/*", "https://*/*"],
   "background": { "service_worker": "src/background/service-worker.js" },

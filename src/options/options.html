@@ -10,7 +10,7 @@
     <header class="page-header">
       <h1>开链助手</h1>
       <p class="subtitle">
-        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关与搜索引擎在工具栏弹窗中。
+        普通左键点击链接、拖动链接到页面空白处，或拖动选中的文字时，按下面的规则决定标签页的打开方式。网址规则优先于域名规则；同类规则按列表顺序匹配，第一条命中的规则生效；都没命中时使用全局默认行为。总开关在工具栏弹窗中；搜索引擎与 TIM 链接修复在本页与弹窗中均可设置。
       </p>
     </header>
 
@@ -21,6 +21,29 @@
       <div class="field">
         <label for="default-action">没有规则命中时</label>
         <select id="default-action" data-action-select></select>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>搜索引擎</h2>
+      <p class="hint">拖动选中的文字搜索时使用；“自定义”可填写任意搜索地址，<code>%s</code> 为搜索词占位符。</p>
+      <div class="field">
+        <label for="search-engine">搜索引擎</label>
+        <select id="search-engine"></select>
+      </div>
+      <div class="field">
+        <label for="search-url">搜索地址（%s 替换为搜索词）</label>
+        <input id="search-url" type="text" spellcheck="false" autocomplete="off" aria-describedby="search-error">
+      </div>
+      <p id="search-error" class="field-error" role="alert" hidden></p>
+    </section>
+
+    <section class="card">
+      <h2>TIM 链接修复</h2>
+      <p class="hint">把 TIM 卡片分享链接（<code>ssl.ptlogin2.qq.com/jump…</code>）替换为其中的真实地址，避免打开时 403。</p>
+      <div class="field field-checkbox">
+        <input id="tim-fix-toggle" type="checkbox">
+        <label for="tim-fix-toggle">启用 TIM 链接修复</label>
       </div>
     </section>
 

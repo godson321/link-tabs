@@ -18,6 +18,13 @@ const FLAG_LABELS = {
   search: "拖动文字搜索"
 };
 
+const SEARCH_ENGINE_LABELS = {
+  bing: "Bing",
+  google: "Google",
+  baidu: "百度",
+  custom: "自定义"
+};
+
 /** 表格三个功能列：列内勾选字段与对应的全局开关字段。 */
 const COLUMNS = {
   click: "clickEnabled",
@@ -31,6 +38,10 @@ function byId(id) {
 
 const pageStatus = byId("page-status");
 const defaultActionSelect = byId("default-action");
+const searchEngineSelect = byId("search-engine");
+const searchUrlInput = byId("search-url");
+const searchError = byId("search-error");
+const timFixToggle = byId("tim-fix-toggle");
 const rulesTable = byId("rules-table");
 const rulesBody = byId("rules-body");
 const trashTemplate = byId("trash-icon");
@@ -71,9 +82,26 @@ for (const select of document.querySelectorAll("select[data-action-select]")) {
   }
 }
 
+/** 搜索引擎下拉框由 LinkTabsRules.SEARCH_ENGINES 生成，界面不会出现解析器不支持的值。 */
+for (const engine of LinkTabsRules.SEARCH_ENGINES) {
+  const option = document.createElement("option");
+  option.value = engine;
+  option.textContent = SEARCH_ENGINE_LABELS[engine] || engine;
+  searchEngineSelect.append(option);
+}
+
 function showStatus(message, isError = false) {
   pageStatus.textContent = message;
   pageStatus.classList.toggle("error", isError);
+}
+
+function showSearchError(message) {
+  if (message) {
+    searchError.textContent = message;
+    searchError.hidden = false;
+  } else {
+    searchError.hidden = true;
+  }
 }
 
 function setControlsEnabled(enabled) {
@@ -86,6 +114,10 @@ function setControlsEnabled(enabled) {
 
 function withDefaultAction(current, action) {
   return { ...current, defaultAction: action };
+}
+
+function withSearchEngine(current, engine) {
+  return { ...current, searchEngine: engine };
 }
 
 function withSwitch(current, name, value) {
@@ -351,6 +383,16 @@ addForm.addEventListener("submit", async event => {
 function renderAll() {
   if (settings === null) return;
   defaultActionSelect.value = settings.defaultAction;
+  timFixToggle.checked = settings.timFixEnabled;
+  searchEngineSelect.value = settings.searchEngine;
+  if (settings.searchEngine === "custom") {
+    searchUrlInput.value = settings.searchUrl;
+    searchUrlInput.readOnly = false;
+  } else {
+    searchUrlInput.value = LinkTabsRules.SEARCH_ENGINE_URLS[settings.searchEngine];
+    searchUrlInput.readOnly = true;
+  }
+  showSearchError(null);
   for (const [flag, box] of Object.entries(headerSwitches)) {
     box.checked = settings[COLUMNS[flag]] === true;
   }
@@ -362,6 +404,53 @@ defaultActionSelect.addEventListener("change", async () => {
   if (!saved) {
     // 保存失败时恢复为存储中的值，不把未保存的选择留在界面上。
     defaultActionSelect.value = settings.defaultAction;
+  }
+});
+
+searchEngineSelect.addEventListener("change", async () => {
+  if (settings === null) return;
+  const engine = searchEngineSelect.value;
+  if (engine === "custom") {
+    // 切到自定义：保留当前地址作为编辑起点，输入有效地址后才保存。
+    searchUrlInput.readOnly = false;
+    showSearchError(null);
+    searchUrlInput.focus();
+    return;
+  }
+  const saved = await persist(current => withSearchEngine(current, engine));
+  if (!saved) {
+    searchEngineSelect.value = settings.searchEngine;
+  }
+});
+
+searchUrlInput.addEventListener("input", () => {
+  if (settings === null || searchEngineSelect.value !== "custom") return;
+  const result = LinkTabsRules.validateSearchUrl(searchUrlInput.value.trim());
+  showSearchError(result.valid ? null : result.error);
+});
+
+searchUrlInput.addEventListener("change", async () => {
+  if (settings === null || searchEngineSelect.value !== "custom") return;
+  const searchUrl = searchUrlInput.value.trim();
+  const result = LinkTabsRules.validateSearchUrl(searchUrl);
+  if (!result.valid) {
+    // 无效地址只提示、不保存。
+    showSearchError(result.error);
+    return;
+  }
+  const saved = await persist(current => ({ ...current, searchEngine: "custom", searchUrl }));
+  if (!saved) {
+    // 保存失败：恢复为存储中的状态，不把未保存的地址留在界面上。
+    renderAll();
+    showStatus("保存失败，地址未保存", true);
+  }
+});
+
+timFixToggle.addEventListener("change", async () => {
+  if (settings === null) return;
+  const saved = await persist(current => withSwitch(current, "timFixEnabled", timFixToggle.checked));
+  if (!saved) {
+    timFixToggle.checked = settings.timFixEnabled;
   }
 });
 
