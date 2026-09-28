@@ -70,20 +70,74 @@ function validateDomainRule(rule) {
   return { valid: true };
 }
 
-/**
- * 校验 URL 模式的 authority 结构，同时容纳 `*` 占位符。
- *
- * `*` 可以出现在主机或端口中，因此先把每个 `*` 替换为在这些位置都合法的
- * 占位字符，再交给 URL 解析器校验整体结构：空格、非法端口、非法 IPv6 等
- * 都会被解析器拒绝。
- */
+/** 判断通配符模式能否展开为指定的 IPv6 文本结构。 */
+function wildcardFitsIpv6Shape(pattern, shape, patternIndex = 0, shapeIndex = 0, seen = new Set()) {
+  const key = patternIndex + ":" + shapeIndex;
+  if (seen.has(key)) return false;
+  seen.add(key);
+  if (patternIndex === pattern.length) return shapeIndex === shape.length;
+  if (pattern[patternIndex] === "*") {
+    return wildcardFitsIpv6Shape(pattern, shape, patternIndex + 1, shapeIndex, seen) ||
+      (shapeIndex < shape.length &&
+        wildcardFitsIpv6Shape(pattern, shape, patternIndex, shapeIndex + 1, seen));
+  }
+  if (shapeIndex === shape.length) return false;
+  const matches = shape[shapeIndex] === ":"
+    ? pattern[patternIndex] === ":"
+    : /^[0-9a-f]$/i.test(pattern[patternIndex]);
+  return matches && wildcardFitsIpv6Shape(pattern, shape, patternIndex + 1, shapeIndex + 1, seen);
+}
+
+/** 判断模式是否至少有一种合法的纯十六进制 IPv6 展开。 */
+function hasValidIpv6Expansion(pattern) {
+  function matchesHextets(leftCount, rightCount, compressed) {
+    const groups = [];
+    const total = leftCount + rightCount;
+    function visit(index) {
+      if (index === total) {
+        const left = groups.slice(0, leftCount).join(":");
+        const right = groups.slice(leftCount).join(":");
+        const shape = compressed ? left + "::" + right : left;
+        return wildcardFitsIpv6Shape(pattern, shape);
+      }
+      for (let length = 1; length <= 4; length += 1) {
+        groups.push("h".repeat(length));
+        if (visit(index + 1)) return true;
+        groups.pop();
+      }
+      return false;
+    }
+    return visit(0);
+  }
+
+  if (matchesHextets(8, 0, false)) return true;
+  for (let left = 0; left <= 7; left += 1) {
+    for (let right = 0; right <= 7 - left; right += 1) {
+      if (matchesHextets(left, right, true)) return true;
+    }
+  }
+  return false;
+}
+
+/** 校验 URL 模式的 authority 结构，同时容纳任意位置的 `*`。 */
 function isValidUrlAuthority(authority) {
   if (!authority || /[\s\\]/.test(authority)) return false;
   try {
     const probe = new URL("http://" + authority.replace(/\*/g, "0") + "/");
     return probe.hostname !== "";
   } catch {
-    return false;
+    const bracketed = /^(.*@)?\[([^\]]*)\](.*)$/.exec(authority);
+    if (!bracketed || !bracketed[2].includes("*") || !hasValidIpv6Expansion(bracketed[2])) {
+      return false;
+    }
+    try {
+      const probe = new URL(
+        "http://" + (bracketed[1] || "") + "[::1]" + bracketed[3].replace(/\*/g, "0") + "/"
+      );
+      return probe.hostname !== "";
+    } catch {
+      return false;
+    }
   }
 }
 

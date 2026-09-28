@@ -49,6 +49,14 @@ test("网址规则接受合法主机、端口与通配符", () => {
     assert.equal(validateUrlRule({ pattern, action: "background" }).valid, true, pattern);
   }
 });
+test("网址规则接受可展开为合法 IPv6 authority 的通配符", () => {
+  const pattern = "https://[*]/*";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://[2001:db8::1]/private", {
+    ...base,
+    urlRules: [{ pattern, action: "native" }]
+  }), "native");
+});
 test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
   const { normalizeSettings } = require("../src/shared/rules.js");
   const normalized = normalizeSettings({
