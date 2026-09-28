@@ -1,6 +1,7 @@
 "use strict";
 
-importScripts("../shared/rules.js", "../shared/settings.js");
+// 用扩展根目录的绝对路径导入，避免相对路径在不同解析基准下失效。
+importScripts("/src/shared/rules.js", "/src/shared/settings.js");
 
 chrome.runtime.onInstalled.addListener(async () => {
   try {

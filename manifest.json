@@ -8,7 +8,8 @@
   "content_scripts": [{
     "matches": ["http://*/*", "https://*/*"],
     "js": ["src/shared/rules.js", "src/shared/settings.js", "src/content/link-interceptor.js"],
-    "run_at": "document_start"
+    "run_at": "document_start",
+    "all_frames": true
   }],
   "action": {
     "default_title": "后台新标签页",

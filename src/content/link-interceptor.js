@@ -25,6 +25,8 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 document.addEventListener("click", event => {
+  // 网站已在捕获阶段取消这次点击时，不再额外打开标签页。
+  if (event.defaultPrevented) return;
   if (currentSettings === undefined) return;
   if (
     event.button !== 0 ||
@@ -56,7 +58,14 @@ document.addEventListener("click", event => {
     isSameDocumentFragment(target, anchor)
   ) return;
 
-  const action = LinkTabsRules.resolveAction(target.href, currentSettings);
+  let action;
+  try {
+    action = LinkTabsRules.resolveAction(target.href, currentSettings);
+  } catch (error) {
+    // 规则计算异常时保持浏览器原生行为，不能因为解析失败而吞掉用户的点击。
+    console.error("Link Tabs:", error);
+    return;
+  }
   if (action === "native") return;
 
   event.preventDefault();

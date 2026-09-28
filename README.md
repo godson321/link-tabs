@@ -34,9 +34,9 @@
 
 ### 网址规则
 
-填写 `http://` 或 `https://` 开头的模式，`*` 匹配零个或多个字符，例如 `https://example.com/private/*`。模式按 glob 语义匹配完整网址；主机名比较不区分大小写，路径与查询区分大小写。
+填写 `http://` 或 `https://` 开头的模式，`*` 匹配零个或多个字符，例如 `https://example.com/private/*`。模式按 glob 语义匹配**浏览器序列化后的完整 href**（含路径、查询与片段）；主机名比较不区分大小写，路径与查询区分大小写。
 
-> **注意：** 模式匹配的是完整网址（含路径）。浏览器会把网址规范化为主机名后至少带一个 `/`（`https://example.com` 实际是 `https://example.com/`），因此以域名结尾的模式（如 `https://example.com`）匹配不到任何链接。要表示“整个站点”，请写成 `https://example.com/*`。
+> **注意：** 模式匹配的是完整 href。浏览器会把网址规范化为主机名后至少带一个 `/`（`https://example.com` 实际是 `https://example.com/`），因此以域名结尾的模式（如 `https://example.com`）匹配不到任何链接。查询与片段同样属于被匹配的内容：字面模式 `https://example.com/page` 匹配不到 `https://example.com/page?x=1`，末尾加 `*`（如 `https://example.com/page*`）才是稳妥写法。要表示“整个站点”，请写成 `https://example.com/*`。
 
 ## 权限与隐私
 
@@ -52,7 +52,7 @@
 
 ## 运行测试
 
-需要已安装 Node.js（测试使用 Node 内置测试运行器 `node --test`，无第三方依赖，无需 `npm install`；本项目在 Node.js v25 上验证通过）：
+需要已安装 Node.js ≥ 18（测试使用 Node 内置测试运行器 `node --test`，无第三方依赖，无需 `npm install`；本项目在 Node.js v25 上验证通过）：
 
 ```bash
 npm test

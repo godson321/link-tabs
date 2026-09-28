@@ -1,8 +1,8 @@
 "use strict";
 
 const ACTION_LABELS = {
-  background: "后台新标签",
-  foreground: "前台新标签",
+  background: "后台新标签页",
+  foreground: "前台新标签页",
   native: "按浏览器原行为"
 };
 
@@ -90,6 +90,7 @@ async function persist(change) {
 
 function createRuleController(config) {
   let editingId = null;
+  let saving = false;
 
   function updateFormMode() {
     config.submit.textContent = editingId === null ? "添加规则" : "保存修改";
@@ -200,6 +201,8 @@ function createRuleController(config) {
 
   config.form.addEventListener("submit", async event => {
     event.preventDefault();
+    // 保存期间忽略重复提交（例如快速双击），避免同一条规则被追加两次。
+    if (saving) return;
     const candidate = config.collect();
     const result = config.validate(candidate);
     if (!result.valid) {
@@ -209,9 +212,17 @@ function createRuleController(config) {
     }
     clearFieldError();
     const id = editingId;
-    const saved = await persist(current => (id === null
-      ? withAddedRule(current, config.kind, candidate)
-      : withUpdatedRule(current, config.kind, id, candidate)));
+    saving = true;
+    config.submit.disabled = true;
+    let saved = false;
+    try {
+      saved = await persist(current => (id === null
+        ? withAddedRule(current, config.kind, candidate)
+        : withUpdatedRule(current, config.kind, id, candidate)));
+    } finally {
+      saving = false;
+      config.submit.disabled = false;
+    }
     if (saved) resetForm();
   });
 
@@ -308,7 +319,11 @@ function renderAll() {
 }
 
 defaultActionSelect.addEventListener("change", async () => {
-  await persist(current => withDefaultAction(current, defaultActionSelect.value));
+  const saved = await persist(current => withDefaultAction(current, defaultActionSelect.value));
+  if (!saved) {
+    // 保存失败时恢复为存储中的值，不把未保存的选择留在界面上。
+    defaultActionSelect.value = settings.defaultAction;
+  }
 });
 
 async function loadSettings() {
