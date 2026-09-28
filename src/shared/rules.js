@@ -70,71 +70,252 @@ function validateDomainRule(rule) {
   return { valid: true };
 }
 
-/**
- * 迭代式 glob 匹配，避免通配符数量受 JavaScript 调用栈限制。
- * shape 中的 `h` 代表任意十六进制字符，其余字符按字面比较。
- */
-function wildcardFitsIpv6Shape(pattern, shape) {
-  let patternIndex = 0;
-  let shapeIndex = 0;
-  let starIndex = -1;
-  let starShapeIndex = -1;
-
-  while (shapeIndex < shape.length) {
-    const patternChar = pattern[patternIndex];
-    const shapeChar = shape[shapeIndex];
-    const matches = shapeChar === "h"
-      ? typeof patternChar === "string" && /^[0-9a-f]$/i.test(patternChar)
-      : patternChar === shapeChar;
-    if (matches) {
-      patternIndex += 1;
-      shapeIndex += 1;
-    } else if (patternChar === "*") {
-      starIndex = patternIndex;
-      starShapeIndex = shapeIndex;
-      patternIndex += 1;
-    } else if (starIndex !== -1) {
-      patternIndex = starIndex + 1;
-      starShapeIndex += 1;
-      shapeIndex = starShapeIndex;
-    } else {
-      return false;
-    }
-  }
-  while (pattern[patternIndex] === "*") patternIndex += 1;
-  return patternIndex === pattern.length;
+/** 创建有限状态自动机并追加 IPv6 形状语法。 */
+function addNfaState(nfa) {
+  nfa.edges.push([]);
+  return nfa.edges.length - 1;
 }
 
-/** 判断模式是否至少有一种合法的纯十六进制 IPv6 展开。 */
-function hasValidIpv6Expansion(pattern) {
-  function matchesHextets(leftCount, rightCount, compressed) {
-    const groups = [];
-    const total = leftCount + rightCount;
-    function visit(index) {
-      if (index === total) {
-        const left = groups.slice(0, leftCount).join(":");
-        const right = groups.slice(leftCount).join(":");
-        const shape = compressed ? left + "::" + right : left;
-        return wildcardFitsIpv6Shape(pattern, shape);
-      }
-      for (let length = 1; length <= 4; length += 1) {
-        groups.push("h".repeat(length));
-        if (visit(index + 1)) return true;
-        groups.pop();
-      }
-      return false;
-    }
-    return visit(0);
-  }
+function addNfaEdge(nfa, from, to, type = null, value = null, structural = false) {
+  nfa.edges[from].push({ to, type, value, structural });
+}
 
-  if (matchesHextets(8, 0, false)) return true;
-  for (let left = 0; left <= 7; left += 1) {
-    for (let right = 0; right <= 7 - left; right += 1) {
-      if (matchesHextets(left, right, true)) return true;
+function addNfaLiteral(nfa, from, to, value, structural = false) {
+  addNfaEdge(nfa, from, to, "literal", value, structural);
+}
+
+function addIpv6Hextet(nfa, from, to) {
+  let previous = from;
+  for (let length = 1; length <= 4; length += 1) {
+    const current = addNfaState(nfa);
+    addNfaEdge(nfa, previous, current, "hex");
+    addNfaEdge(nfa, current, to);
+    previous = current;
+  }
+}
+
+function appendIpv6Groups(nfa, current, count) {
+  for (let index = 0; index < count; index += 1) {
+    const next = addNfaState(nfa);
+    addIpv6Hextet(nfa, current, next);
+    current = next;
+    if (index + 1 < count) {
+      const colon = addNfaState(nfa);
+      addNfaLiteral(nfa, current, colon, ":");
+      current = colon;
     }
   }
+  return current;
+}
+
+function addIpv6Template(nfa, start, accept, leftCount, rightCount, compressed) {
+  const branchStart = addNfaState(nfa);
+  addNfaEdge(nfa, start, branchStart);
+  let current = appendIpv6Groups(nfa, branchStart, leftCount);
+  if (compressed) {
+    for (let index = 0; index < 2; index += 1) {
+      const colon = addNfaState(nfa);
+      addNfaLiteral(nfa, current, colon, ":");
+      current = colon;
+    }
+  }
+  current = appendIpv6Groups(nfa, current, rightCount);
+  addNfaEdge(nfa, current, accept);
+}
+
+/** 有限状态机与 glob 模式的乘积搜索；状态数对模式长度线性，且无递归。 */
+function nfaEdgeMatches(edge, character) {
+  if (edge.type === "literal") return edge.value === character;
+  if (edge.type === "hex") return /^[0-9a-f]$/i.test(character);
+  if (edge.type === "rawHost") {
+    const code = character.codePointAt(0);
+    return code > 0x20 && character !== "%" && !["#", "/", ":", "<", ">", "?", "@", "[", "\\", "]", "^", "|"].includes(character);
+  }
+  if (edge.type === "userinfo") {
+    const code = character.codePointAt(0);
+    return code > 0x20 && character !== "\\" && character !== "/" && character !== "?" && character !== "#";
+  }
+  if (edge.type === "digit") return /^[0-9]$/.test(character);
+  if (edge.type === "zeroDigit") return character === "0";
+  if (edge.type === "nonzeroDigit") return /^[1-9]$/.test(character);
+  if (edge.type === "1to5") return /^[1-5]$/.test(character);
+  if (edge.type === "0to4") return /^[0-4]$/.test(character);
+  if (edge.type === "0to2") return /^[0-2]$/.test(character);
+  if (edge.type === "0to5") return /^[0-5]$/.test(character);
   return false;
 }
+
+function wildcardSample(edge) {
+  if (edge.type === "literal") return edge.value;
+  if (edge.type === "hex") return "6";
+  if (edge.type === "rawHost" || edge.type === "userinfo") return "a";
+  if (edge.type === "zeroDigit" || edge.type === "digit") return "0";
+  if (edge.type === "nonzeroDigit" || edge.type === "1to5") return "1";
+  if (["0to4", "0to2", "0to5"].includes(edge.type)) return "0";
+  return "";
+}
+
+function findGlobWitness(pattern, nfa, options = {}) {
+  const glob = pattern.replace(/\*+/g, "*");
+  const hexSequence = options.hexSequence || "6";
+  const nodes = [];
+  const visited = new Set();
+  const queue = [];
+
+  function enqueue(patternIndex, state, previous, output, usedWildcard, hexCount) {
+    const boundedHexCount = Math.min(hexCount, 16);
+    const key = `${patternIndex}:${state}:${options.requireWildcard ? Number(usedWildcard) : 0}:${boundedHexCount}`;
+    if (visited.has(key)) return;
+    visited.add(key);
+    nodes.push({ patternIndex, state, previous, output, usedWildcard, hexCount: boundedHexCount });
+    queue.push(nodes.length - 1);
+  }
+
+  enqueue(0, nfa.start, -1, "", false, 0);
+  let cursor = 0;
+  while (cursor < queue.length) {
+    const nodeIndex = queue[cursor++];
+    const node = nodes[nodeIndex];
+    if (
+      node.patternIndex === glob.length && node.state === nfa.accept &&
+      (!options.requireWildcard || node.usedWildcard) &&
+      node.hexCount >= (options.minimumHexCount || 0)
+    ) {
+      const output = [];
+      let previous = nodeIndex;
+      while (previous !== -1) {
+        output.push(nodes[previous].output);
+        previous = nodes[previous].previous;
+      }
+      return output.reverse().join("");
+    }
+
+    const patternCharacter = glob[node.patternIndex];
+    for (const edge of nfa.edges[node.state]) {
+      if (edge.type === null) {
+        enqueue(node.patternIndex, edge.to, nodeIndex, "", node.usedWildcard, node.hexCount);
+      } else if (patternCharacter === "*") {
+        if (edge.structural) continue;
+        if (options.percentOnly && !(edge.type === "hex" || (edge.type === "literal" && edge.value === "%"))) continue;
+        const output = edge.type === "hex"
+          ? hexSequence[node.hexCount % hexSequence.length]
+          : wildcardSample(edge);
+        enqueue(
+          node.patternIndex,
+          edge.to,
+          nodeIndex,
+          output,
+          true,
+          node.hexCount + Number(edge.type === "hex")
+        );
+      } else if (patternCharacter !== undefined && nfaEdgeMatches(edge, patternCharacter)) {
+        enqueue(node.patternIndex + 1, edge.to, nodeIndex, patternCharacter, node.usedWildcard, node.hexCount);
+      }
+    }
+    if (patternCharacter === "*") {
+      enqueue(node.patternIndex + 1, node.state, nodeIndex, "", node.usedWildcard, node.hexCount);
+    }
+  }
+  return null;
+}
+
+function createIpv6Nfa() {
+  const nfa = { edges: [] };
+  const start = addNfaState(nfa);
+  const accept = addNfaState(nfa);
+  addIpv6Template(nfa, start, accept, 8, 0, false);
+  for (let left = 0; left <= 7; left += 1) {
+    for (let right = 0; right <= 7 - left; right += 1) {
+      addIpv6Template(nfa, start, accept, left, right, true);
+    }
+  }
+  return { edges: nfa.edges, start, accept };
+}
+
+const IPV6_NFA = createIpv6Nfa();
+
+function createDomainHostNfa() {
+  const nfa = { edges: [] };
+  const start = addNfaState(nfa);
+  const accept = addNfaState(nfa);
+  const firstHex = addNfaState(nfa);
+  const secondHex = addNfaState(nfa);
+  addNfaEdge(nfa, start, accept, "rawHost");
+  addNfaEdge(nfa, accept, accept, "rawHost");
+  addNfaLiteral(nfa, start, firstHex, "%");
+  addNfaLiteral(nfa, accept, firstHex, "%");
+  addNfaEdge(nfa, firstHex, secondHex, "hex");
+  addNfaEdge(nfa, secondHex, accept, "hex");
+  return { edges: nfa.edges, start, accept };
+}
+
+const DOMAIN_HOST_NFA = createDomainHostNfa();
+
+function copyNfaInto(target, source) {
+  const offset = target.edges.length;
+  for (let index = 0; index < source.edges.length; index += 1) addNfaState(target);
+  for (let state = 0; state < source.edges.length; state += 1) {
+    for (const edge of source.edges[state]) {
+      addNfaEdge(target, state + offset, edge.to + offset, edge.type, edge.value, edge.structural);
+    }
+  }
+  return { start: source.start + offset, accept: source.accept + offset };
+}
+
+function addAuthorityPort(nfa, hostEnd, accept) {
+  const portStart = addNfaState(nfa);
+  addNfaEdge(nfa, hostEnd, accept);
+  addNfaLiteral(nfa, hostEnd, portStart, ":", true);
+  addNfaEdge(nfa, portStart, accept); // Empty ports are valid URL authority expansions.
+  addNfaEdge(nfa, portStart, portStart, "zeroDigit");
+
+  function addPortTemplate(types) {
+    let current = portStart;
+    for (const type of types) {
+      const next = addNfaState(nfa);
+      if (type.startsWith("=")) addNfaLiteral(nfa, current, next, type.slice(1));
+      else addNfaEdge(nfa, current, next, type);
+      current = next;
+    }
+    addNfaEdge(nfa, current, accept);
+  }
+
+  for (let length = 1; length <= 4; length += 1) {
+    addPortTemplate(["nonzeroDigit", ...Array(length - 1).fill("digit")]);
+  }
+  addPortTemplate(["1to5", "digit", "digit", "digit", "digit"]);
+  addPortTemplate(["=6", "0to4", "digit", "digit", "digit"]);
+  addPortTemplate(["=6", "=5", "0to4", "digit", "digit"]);
+  addPortTemplate(["=6", "=5", "=5", "0to2", "digit"]);
+  addPortTemplate(["=6", "=5", "=5", "=3", "0to5"]);
+}
+
+function createAuthorityNfa() {
+  const nfa = { edges: [] };
+  const start = addNfaState(nfa);
+  const accept = addNfaState(nfa);
+  const hostStart = addNfaState(nfa);
+  const userinfoStart = addNfaState(nfa);
+
+  addNfaEdge(nfa, start, hostStart);
+  addNfaEdge(nfa, start, userinfoStart);
+  addNfaEdge(nfa, userinfoStart, userinfoStart, "userinfo");
+  addNfaLiteral(nfa, userinfoStart, hostStart, "@", true);
+
+  const domain = copyNfaInto(nfa, DOMAIN_HOST_NFA);
+  addNfaEdge(nfa, hostStart, domain.start);
+  addAuthorityPort(nfa, domain.accept, accept);
+
+  const ipv6 = copyNfaInto(nfa, IPV6_NFA);
+  const bracketEnd = addNfaState(nfa);
+  addNfaLiteral(nfa, hostStart, ipv6.start, "[", true);
+  addNfaLiteral(nfa, ipv6.accept, bracketEnd, "]", true);
+  addAuthorityPort(nfa, bracketEnd, accept);
+
+  return { edges: nfa.edges, start, accept };
+}
+
+const AUTHORITY_NFA = createAuthorityNfa();
 
 function wildcardMatches(pattern, value) {
   let patternIndex = 0;
@@ -174,57 +355,64 @@ function findValidPortExpansion(pattern) {
   return null;
 }
 
-/** 校验 userinfo、主机和端口；各位置的通配符可独立选择空或非空展开。 */
-function hasValidOrdinaryAuthorityExpansion(authority) {
-  const at = authority.lastIndexOf("@");
-  const userinfo = at === -1 ? "" : authority.slice(0, at + 1);
-  const hostAndPort = authority.slice(at + 1);
-  const colon = hostAndPort.lastIndexOf(":");
-  if (colon !== -1 && hostAndPort.slice(0, colon).includes(":")) return false;
-  const host = colon === -1 ? hostAndPort : hostAndPort.slice(0, colon);
-  const port = colon === -1 ? null : hostAndPort.slice(colon + 1);
-  const portExpansion = port === null ? null : findValidPortExpansion(port);
-  if (!host || (port !== null && portExpansion === null)) return false;
-
-  for (const userProbe of userinfo.includes("*") ? [userinfo.replace(/\*/g, ""), userinfo.replace(/\*/g, "0")] : [userinfo]) {
-    for (const hostProbe of host.includes("*") ? [host.replace(/\*/g, ""), host.replace(/\*/g, "0")] : [host]) {
-      const portProbe = port === null ? "" : ":" + portExpansion;
-      try {
-        const probe = new URL("http://" + userProbe + hostProbe + portProbe + "/");
-        if (probe.hostname !== "") return true;
-      } catch {
-        // Try the next independent wildcard expansion.
-      }
-    }
-  }
-  return false;
-}
-
-/** 校验 URL 模式的 authority 结构，同时容纳任意位置的 `*`。 */
+/** 校验 URL 模式 authority：glob 与固定 HTTP(S) authority grammar 求交，再由 URL 确认见证。 */
 function isValidUrlAuthority(authority) {
   if (!authority || /[\s\\]/.test(authority)) return false;
-  const bracketed = /^(.*@)?\[([^\]]*)\](?::([^:]*))?$/.exec(authority);
-  if (bracketed) {
-    if (!bracketed[2].includes("*") || !hasValidIpv6Expansion(bracketed[2])) {
-      try {
-        return new URL("http://" + authority + "/").hostname !== "";
-      } catch {
-        return false;
-      }
-    }
-    const portExpansion = bracketed[3] === undefined
-      ? null
-      : findValidPortExpansion(bracketed[3]);
-    if (bracketed[3] !== undefined && portExpansion === null) return false;
-    const userProbe = (bracketed[1] || "").replace(/\*/g, "");
-    const portProbe = bracketed[3] === undefined ? "" : ":" + portExpansion;
+  if (!authority.includes("*")) {
     try {
-      return new URL("http://" + userProbe + "[::1]" + portProbe + "/").hostname !== "";
+      return new URL("http://" + authority + "/").hostname !== "";
     } catch {
       return false;
     }
   }
-  return hasValidOrdinaryAuthorityExpansion(authority);
+
+  // 保留 URL 解析器对字面 IPv6（包括 IPv4-embedded 形式）的完整识别。
+  const bracketed = /^(.*@)?\[([^\]]*)\](?::([^:]*))?$/.exec(authority);
+  if (bracketed && !bracketed[2].includes("*")) {
+    const portExpansion = bracketed[3] === undefined
+      ? null
+      : findValidPortExpansion(bracketed[3]);
+    if (bracketed[3] !== undefined && portExpansion === null) return false;
+    const userinfo = (bracketed[1] || "").replace(/\*/g, "");
+    const port = bracketed[3] === undefined ? "" : ":" + portExpansion;
+    try {
+      return new URL("http://" + userinfo + "[" + bracketed[2] + "]" + port + "/").hostname !== "";
+    } catch {
+      return false;
+    }
+  }
+
+  function parsesAuthority(candidate) {
+    if (candidate === null) return false;
+    try {
+      return new URL("http://" + candidate + "/").hostname !== "";
+    } catch {
+      return false;
+    }
+  }
+
+  const expansion = findGlobWitness(authority, AUTHORITY_NFA);
+  if (parsesAuthority(expansion)) return true;
+
+  // If fixed percent escapes introduce an incomplete UTF-8 sequence, try valid
+  // percent-byte completions through wildcard transitions before rejecting it.
+  for (const { hexSequence, minimumHexCount } of [
+    { hexSequence: "80", minimumHexCount: 2 },
+    { hexSequence: "A080", minimumHexCount: 4 },
+    { hexSequence: "8080", minimumHexCount: 4 },
+    { hexSequence: "80A0", minimumHexCount: 4 },
+    { hexSequence: "908080", minimumHexCount: 6 },
+    { hexSequence: "9F92A9", minimumHexCount: 6 }
+  ]) {
+    const candidate = findGlobWitness(authority, AUTHORITY_NFA, {
+      requireWildcard: true,
+      percentOnly: true,
+      hexSequence,
+      minimumHexCount
+    });
+    if (parsesAuthority(candidate)) return true;
+  }
+  return false;
 }
 
 function validateUrlRule(rule) {

@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const { performance } = require("node:perf_hooks");
 const { DEFAULT_SETTINGS, resolveAction, validateUrlRule } = require("../src/shared/rules.js");
 
 const base = { ...DEFAULT_SETTINGS, enabled: true };
@@ -34,7 +35,9 @@ test("拒绝主机名、端口或 IPv6 非法的网址规则", () => {
   for (const pattern of [
     "https://exa mple.com/*",
     "https://example.com:bad/*",
-    "https://[invalid]/*"
+    "https://example.com:65536*/*",
+    "https://[invalid]/*",
+    "https://[invalid*]/*"
   ]) {
     assert.equal(validateUrlRule({ pattern, action: "background" }).valid, false, pattern);
   }
@@ -49,12 +52,29 @@ test("网址规则接受合法主机、端口与通配符", () => {
     assert.equal(validateUrlRule({ pattern, action: "background" }).valid, true, pattern);
   }
 });
+test("网址规则支持独立通配符形成合法的普通主机和 userinfo", () => {
+  for (const pattern of [
+    // %61 是合法的主机名展开；两颗星分别需匹配空串和 "61"。
+    "https://*%*/*",
+    "https://*%*@example.com/*",
+    // URL parser 接受 %C3%80；星号需补上完整的百分号编码字节。
+    "https://%C3*/*"
+  ]) {
+    assert.equal(validateUrlRule({ pattern, action: "background" }).valid, true, pattern);
+  }
+});
 test("网址规则接受可展开为合法 IPv6 authority 的通配符", () => {
   const pattern = "https://[*]/*";
   assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
   assert.equal(resolveAction("https://[2001:db8::1]/private", {
     ...base,
     urlRules: [{ pattern, action: "native" }]
+  }), "native");
+  const emptyExpansionPattern = "https://[::*]/*";
+  assert.equal(validateUrlRule({ pattern: emptyExpansionPattern, action: "native" }).valid, true);
+  assert.equal(resolveAction("https://[::]/private", {
+    ...base,
+    urlRules: [{ pattern: emptyExpansionPattern, action: "native" }]
   }), "native");
 });
 test("authority 通配符可用空展开保留有效端口", () => {
@@ -72,6 +92,14 @@ test("IPv6 authority 与端口通配符可分别选择有效展开", () => {
     ...base,
     urlRules: [{ pattern, action: "native" }]
   }), "native");
+});
+test("拒绝包含长通配符序列和不可能字面的 IPv6 模式且校验及时", () => {
+  const pattern = `https://[${"*".repeat(1000)}g]/*`;
+  const startedAt = performance.now();
+  const result = validateUrlRule({ pattern, action: "background" });
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(result.valid, false);
+  assert.ok(elapsedMs < 500, `validation took ${elapsedMs.toFixed(1)}ms`);
 });
 test("超长 IPv6 通配符串的校验不会抛出", () => {
   const pattern = "https://[" + "*".repeat(20000) + "]/*";
