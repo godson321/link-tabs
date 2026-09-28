@@ -9,6 +9,9 @@
 
 const ACTIONS = Object.freeze(["background", "foreground", "native"]);
 
+/** 网址规则只覆盖这两种协议；两者默认端口不同，校验模式时都要考虑。 */
+const URL_SCHEMES = Object.freeze(["http", "https"]);
+
 /** DNS 长度上限：主机名总长 253，单个标签 63（RFC 1035 / RFC 1123）。 */
 const MAX_DOMAIN_LENGTH = 253;
 const MAX_DOMAIN_LABEL_LENGTH = 63;
@@ -26,16 +29,6 @@ function isPlainObject(value) {
 
 function isSupportedAction(action) {
   return ACTIONS.includes(action);
-}
-
-function escapeRegExp(value) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** 把含 `*` 通配符的模式编译为锚定的正则，`*` 匹配零个或多个字符。 */
-function compileWildcard(pattern) {
-  const parts = pattern.split("*").map(escapeRegExp);
-  return new RegExp("^" + parts.join(".*") + "$");
 }
 
 /**
@@ -139,6 +132,12 @@ function addIpv6Template(nfa, start, accept, leftCount, rightCount, compressed) 
   addNfaEdge(nfa, current, accept);
 }
 
+/**
+ * 序列化后仍原样保留的 userinfo 字符：unreserved 与未被百分号编码的 sub-delims。
+ * `:`、`@`、`[` 等字符会被 URL 序列化改写，不能当作字面字符参与匹配。
+ */
+const USERINFO_CHARACTER = /^[A-Za-z0-9\-._~!$&'()*+,%]$/;
+
 /** 有限状态机与 glob 模式的乘积搜索；状态数对模式长度线性，且无递归。 */
 function nfaEdgeMatches(edge, character) {
   if (edge.type === "literal") return edge.value === character;
@@ -147,12 +146,8 @@ function nfaEdgeMatches(edge, character) {
     const code = character.codePointAt(0);
     return code > 0x20 && character !== "%" && !["#", "/", ":", "<", ">", "?", "@", "[", "\\", "]", "^", "|"].includes(character);
   }
-  if (edge.type === "userinfo") {
-    const code = character.codePointAt(0);
-    return code > 0x20 && character !== "\\" && character !== "/" && character !== "?" && character !== "#";
-  }
+  if (edge.type === "userinfo") return USERINFO_CHARACTER.test(character);
   if (edge.type === "digit") return /^[0-9]$/.test(character);
-  if (edge.type === "zeroDigit") return character === "0";
   if (edge.type === "nonzeroDigit") return /^[1-9]$/.test(character);
   if (edge.type === "1to5") return /^[1-5]$/.test(character);
   if (edge.type === "0to4") return /^[0-4]$/.test(character);
@@ -165,38 +160,37 @@ function wildcardSample(edge) {
   if (edge.type === "literal") return edge.value;
   if (edge.type === "hex") return "6";
   if (edge.type === "rawHost" || edge.type === "userinfo") return "a";
-  if (edge.type === "zeroDigit" || edge.type === "digit") return "0";
+  if (edge.type === "digit") return "0";
   if (edge.type === "nonzeroDigit" || edge.type === "1to5") return "1";
   if (["0to4", "0to2", "0to5"].includes(edge.type)) return "0";
   return "";
 }
 
+/**
+ * 有限状态机与 glob 模式的乘积搜索，返回一个同时被模式与状态机接受的展开串。
+ * `starMustConsume` 要求每个星号至少展开一个字符（用于绕开「星号展开为空后
+ * 解析成另一种形式」的见证）。
+ */
 function findGlobWitness(pattern, nfa, options = {}) {
   const glob = pattern.replace(/\*+/g, "*");
-  const hexSequence = options.hexSequence || "6";
   const nodes = [];
   const visited = new Set();
   const queue = [];
 
-  function enqueue(patternIndex, state, previous, output, usedWildcard, hexCount) {
-    const boundedHexCount = Math.min(hexCount, 16);
-    const key = `${patternIndex}:${state}:${options.requireWildcard ? Number(usedWildcard) : 0}:${boundedHexCount}`;
+  function enqueue(patternIndex, state, previous, output, starConsumed) {
+    const key = `${patternIndex}:${state}:${options.starMustConsume ? Number(starConsumed) : 0}`;
     if (visited.has(key)) return;
     visited.add(key);
-    nodes.push({ patternIndex, state, previous, output, usedWildcard, hexCount: boundedHexCount });
+    nodes.push({ patternIndex, state, previous, output, starConsumed });
     queue.push(nodes.length - 1);
   }
 
-  enqueue(0, nfa.start, -1, "", false, 0);
+  enqueue(0, nfa.start, -1, "", false);
   let cursor = 0;
   while (cursor < queue.length) {
     const nodeIndex = queue[cursor++];
     const node = nodes[nodeIndex];
-    if (
-      node.patternIndex === glob.length && node.state === nfa.accept &&
-      (!options.requireWildcard || node.usedWildcard) &&
-      node.hexCount >= (options.minimumHexCount || 0)
-    ) {
+    if (node.patternIndex === glob.length && node.state === nfa.accept) {
       const output = [];
       let previous = nodeIndex;
       while (previous !== -1) {
@@ -209,28 +203,15 @@ function findGlobWitness(pattern, nfa, options = {}) {
     const patternCharacter = glob[node.patternIndex];
     for (const edge of nfa.edges[node.state]) {
       if (edge.type === null) {
-        enqueue(node.patternIndex, edge.to, nodeIndex, "", node.usedWildcard, node.hexCount);
+        enqueue(node.patternIndex, edge.to, nodeIndex, "", node.starConsumed);
       } else if (patternCharacter === "*") {
-        // A glob star may supply any character; the NFA path and URL parser,
-        // not the pattern's literal delimiters, determine authority validity.
-        if (options.percentOnly && !(edge.type === "hex" || (edge.type === "literal" && edge.value === "%"))) continue;
-        const output = edge.type === "hex"
-          ? hexSequence[node.hexCount % hexSequence.length]
-          : wildcardSample(edge);
-        enqueue(
-          node.patternIndex,
-          edge.to,
-          nodeIndex,
-          output,
-          true,
-          node.hexCount + Number(edge.type === "hex")
-        );
+        enqueue(node.patternIndex, edge.to, nodeIndex, wildcardSample(edge), true);
       } else if (patternCharacter !== undefined && nfaEdgeMatches(edge, patternCharacter)) {
-        enqueue(node.patternIndex + 1, edge.to, nodeIndex, patternCharacter, node.usedWildcard, node.hexCount);
+        enqueue(node.patternIndex + 1, edge.to, nodeIndex, patternCharacter, node.starConsumed);
       }
     }
-    if (patternCharacter === "*") {
-      enqueue(node.patternIndex + 1, node.state, nodeIndex, "", node.usedWildcard, node.hexCount);
+    if (patternCharacter === "*" && (!options.starMustConsume || node.starConsumed)) {
+      enqueue(node.patternIndex + 1, node.state, nodeIndex, "", node.starConsumed);
     }
   }
   return null;
@@ -251,22 +232,38 @@ function createIpv6Nfa() {
 
 const IPV6_NFA = createIpv6Nfa();
 
+/**
+ * 序列化后的 reg-name 主机：至少一个保持原样的字符。
+ * `%` 转义在解析时会被解码改写，因此不能作为字面字符留在序列化结果里。
+ */
 function createDomainHostNfa() {
   const nfa = { edges: [] };
   const start = addNfaState(nfa);
   const accept = addNfaState(nfa);
-  const firstHex = addNfaState(nfa);
-  const secondHex = addNfaState(nfa);
   addNfaEdge(nfa, start, accept, "rawHost");
   addNfaEdge(nfa, accept, accept, "rawHost");
-  addNfaLiteral(nfa, start, firstHex, "%");
-  addNfaLiteral(nfa, accept, firstHex, "%");
-  addNfaEdge(nfa, firstHex, secondHex, "hex");
-  addNfaEdge(nfa, secondHex, accept, "hex");
   return { edges: nfa.edges, start, accept };
 }
 
 const DOMAIN_HOST_NFA = createDomainHostNfa();
+
+/**
+ * 序列化后的 userinfo：`用户名[:密码]`，两段都只由保持原样的字符组成。
+ * 冒号只在密码非空时出现，空 userinfo 会被序列化整体丢弃。
+ */
+function createUserinfoNfa() {
+  const nfa = { edges: [] };
+  const start = addNfaState(nfa);
+  const accept = addNfaState(nfa);
+  const password = addNfaState(nfa);
+  addNfaEdge(nfa, start, accept, "userinfo");
+  addNfaEdge(nfa, accept, accept, "userinfo");
+  addNfaLiteral(nfa, start, password, ":");
+  addNfaLiteral(nfa, accept, password, ":");
+  addNfaEdge(nfa, password, accept, "userinfo");
+  addNfaEdge(nfa, password, password, "userinfo");
+  return { edges: nfa.edges, start, accept };
+}
 
 function copyNfaInto(target, source) {
   const offset = target.edges.length;
@@ -281,10 +278,10 @@ function copyNfaInto(target, source) {
 
 function addAuthorityPort(nfa, hostEnd, accept) {
   const portStart = addNfaState(nfa);
-  addNfaEdge(nfa, hostEnd, accept);
+  addNfaEdge(nfa, hostEnd, accept); // 没有端口。
   addNfaLiteral(nfa, hostEnd, portStart, ":");
-  addNfaEdge(nfa, portStart, accept); // Empty ports are valid URL authority expansions.
-  addNfaEdge(nfa, portStart, portStart, "zeroDigit");
+  // 序列化后的端口没有前导零：只有 `0` 或 1..65535。
+  addNfaLiteral(nfa, portStart, accept, "0");
 
   function addPortTemplate(types) {
     let current = portStart;
@@ -312,12 +309,12 @@ function createAuthorityNfa() {
   const start = addNfaState(nfa);
   const accept = addNfaState(nfa);
   const hostStart = addNfaState(nfa);
-  const userinfoStart = addNfaState(nfa);
 
   addNfaEdge(nfa, start, hostStart);
-  addNfaEdge(nfa, start, userinfoStart);
-  addNfaEdge(nfa, userinfoStart, userinfoStart, "userinfo");
-  addNfaLiteral(nfa, userinfoStart, hostStart, "@");
+
+  const userinfo = copyNfaInto(nfa, createUserinfoNfa());
+  addNfaEdge(nfa, start, userinfo.start);
+  addNfaLiteral(nfa, userinfo.accept, hostStart, "@");
 
   const domain = copyNfaInto(nfa, DOMAIN_HOST_NFA);
   addNfaEdge(nfa, hostStart, domain.start);
@@ -359,75 +356,37 @@ function wildcardMatches(pattern, value) {
   return patternIndex === pattern.length;
 }
 
-/** 返回一个 URL 解析器可接受的端口展开；null 表示不存在。 */
-function findValidPortExpansion(pattern) {
-  if (!pattern.includes("*")) {
-    return /^\d+$/.test(pattern) && Number(pattern) <= 65535 ? pattern : null;
+/** 解析 authority 并返回 URL 序列化后的 authority；无法解析时返回 null。 */
+function serializeAuthority(authority, scheme) {
+  try {
+    const href = new URL(scheme + "://" + authority + "/").href;
+    const start = href.indexOf("://") + 3;
+    return href.slice(start, href.indexOf("/", start));
+  } catch {
+    return null;
   }
-  if (wildcardMatches(pattern, "")) return "";
-  for (let port = 0; port <= 65535; port += 1) {
-    const candidate = String(port);
-    if (wildcardMatches(pattern, candidate)) return candidate;
-  }
-  return null;
 }
 
-/** 校验 URL 模式 authority：glob 与固定 HTTP(S) authority grammar 求交，再由 URL 确认见证。 */
+/**
+ * 校验 URL 模式的 authority：模式必须能匹配某个序列化后的 authority，
+ * 否则规则永远不可能命中任何链接（href 只会以序列化形式出现）。
+ * 判定方式是让状态机给出一个展开串，再用 URL 解析器把它规范化回序列化形式复核。
+ */
 function isValidUrlAuthority(authority) {
   if (!authority || /[\s\\]/.test(authority)) return false;
-  if (!authority.includes("*")) {
-    try {
-      return new URL("http://" + authority + "/").hostname !== "";
-    } catch {
-      return false;
-    }
+  const normalized = normalizeAuthority(authority);
+  if (!normalized.includes("*")) {
+    return URL_SCHEMES.some(scheme => serializeAuthority(normalized, scheme) === normalized);
   }
-
-  // 保留 URL 解析器对字面 IPv6（包括 IPv4-embedded 形式）的完整识别。
-  const bracketed = /^(.*@)?\[([^\]]*)\](?::([^:]*))?$/.exec(authority);
-  if (bracketed && !bracketed[2].includes("*")) {
-    const portExpansion = bracketed[3] === undefined
-      ? null
-      : findValidPortExpansion(bracketed[3]);
-    if (bracketed[3] !== undefined && portExpansion === null) return false;
-    const userinfo = (bracketed[1] || "").replace(/\*/g, "");
-    const port = bracketed[3] === undefined ? "" : ":" + portExpansion;
-    try {
-      return new URL("http://" + userinfo + "[" + bracketed[2] + "]" + port + "/").hostname !== "";
-    } catch {
-      return false;
+  // 星号展开为空时，展开串可能被解析成另一种形式（例如 `0` 变成 IPv4 的 `0.0.0.0`），
+  // 因此再要求每个星号至少展开一个字符重试一次。
+  for (const starMustConsume of [false, true]) {
+    const witness = findGlobWitness(normalized, AUTHORITY_NFA, { starMustConsume });
+    if (witness === null) continue;
+    for (const scheme of URL_SCHEMES) {
+      const serialized = serializeAuthority(witness, scheme);
+      if (serialized !== null && wildcardMatches(normalized, serialized)) return true;
     }
-  }
-
-  function parsesAuthority(candidate) {
-    if (candidate === null) return false;
-    try {
-      return new URL("http://" + candidate + "/").hostname !== "";
-    } catch {
-      return false;
-    }
-  }
-
-  const expansion = findGlobWitness(authority, AUTHORITY_NFA);
-  if (parsesAuthority(expansion)) return true;
-
-  // If fixed percent escapes introduce an incomplete UTF-8 sequence, try valid
-  // percent-byte completions through wildcard transitions before rejecting it.
-  for (const { hexSequence, minimumHexCount } of [
-    { hexSequence: "80", minimumHexCount: 2 },
-    { hexSequence: "A080", minimumHexCount: 4 },
-    { hexSequence: "8080", minimumHexCount: 4 },
-    { hexSequence: "80A0", minimumHexCount: 4 },
-    { hexSequence: "908080", minimumHexCount: 6 },
-    { hexSequence: "9F92A9", minimumHexCount: 6 }
-  ]) {
-    const candidate = findGlobWitness(authority, AUTHORITY_NFA, {
-      requireWildcard: true,
-      percentOnly: true,
-      hexSequence,
-      minimumHexCount
-    });
-    if (parsesAuthority(candidate)) return true;
   }
   return false;
 }
@@ -439,6 +398,12 @@ function validateUrlRule(rule) {
   if (!pattern) return { valid: false, error: "请填写网址模式" };
   const match = /^(https?):\/\/([^/?#]*)([\s\S]*)$/i.exec(pattern);
   if (!match) return { valid: false, error: "网址模式必须使用 http:// 或 https:// 开头" };
+  if (/[^\x00-\x7f]/.test(pattern)) {
+    return {
+      valid: false,
+      error: "网址模式不能包含非 ASCII 字符；中文域名请改用 punycode 形式（如 xn--fsqu00a.com）"
+    };
+  }
   if (match[2] === "") return { valid: false, error: "网址模式必须包含主机名" };
   if (!isValidUrlAuthority(match[2])) {
     return { valid: false, error: "网址模式的主机名、端口或 IPv6 地址无效" };
@@ -496,6 +461,8 @@ function matchesDomain(hostname, rule) {
 
 /**
  * 解析链接应执行的动作。
+ * `url` 使用浏览器序列化后的 href（内容脚本传入的正是 `target.href`）：
+ * 规则的校验与匹配都以序列化形式为准。
  * 顺序：归一化设置 → 停用返回 native → 非 HTTP/HTTPS 返回 native
  * → 第一条匹配的网址规则 → 第一条匹配的域名规则 → 全局默认行为。
  */
@@ -512,18 +479,12 @@ function resolveAction(url, settings) {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "native";
 
   const target = normalizeUrlForMatch(parsed.href);
-  // Keep the validated source spelling too: URL serialization drops valid
-  // syntax such as an empty password's colon, which a glob may intentionally match.
-  const rawTarget = typeof url === "string" ? normalizeUrlForMatch(url) : null;
   if (target === null) return "native";
 
   for (const rule of normalized.urlRules) {
     const pattern = normalizeUrlForMatch(rule.pattern);
-    if (pattern !== null) {
-      const matcher = compileWildcard(pattern);
-      if (matcher.test(target) || (rawTarget !== null && matcher.test(rawTarget))) {
-        return rule.action;
-      }
+    if (pattern !== null && wildcardMatches(pattern, target)) {
+      return rule.action;
     }
   }
 

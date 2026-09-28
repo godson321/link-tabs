@@ -60,27 +60,42 @@ test("网址规则接受合法主机、端口与通配符", () => {
 test("星号可提供 IPv6 authority 所需的方括号", () => {
   const pattern = "https://*::1*/*";
   assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
-  assert.equal(resolveAction("https://[::1]/x", {
+  assert.equal(resolveAction(new URL("https://[::1]/x").href, {
     ...base,
     urlRules: [{ pattern, action: "native" }]
   }), "native");
-
-  // The star can supply userinfo's @ and an IPv6 bracket, making this a valid
-  // URL expansion even though the literal-only authority would be malformed.
-  const expandedPattern = "https://[invalid*]/*";
-  assert.equal(validateUrlRule({ pattern: expandedPattern, action: "native" }).valid, true);
-  assert.equal(resolveAction("https://[invalid@[::]/x", {
+});
+test("拒绝无法匹配任何序列化 href 的 authority 模式", () => {
+  for (const pattern of [
+    // 序列化后的 authority 里字面 `[` 只能作为 IPv6 方括号出现，`invalid` 不是合法的
+    // IPv6 内容，因此 `[invalid*]` 无论星号展开成什么都无法出现在任何 href 中。
+    "https://[invalid*]/*",
+    // 主机名里的百分号转义会被解析器解码改写，序列化结果中不会留下 `%41`。
+    "https://a%41b.com/*",
+    // 字面 IPv6 会被规范化：前导零被压缩、IPv4-embedded 形式改写为十六进制。
+    "https://[0:0:0:0:0:0:0:1]/*",
+    "https://[::ffff:1.2.3.4]/*",
+    // IPv4 字面同样会被规范化（十六进制、前导零写法都会被改写）。
+    "https://192.168.001.1/*",
+    "https://0x7f.1/*"
+  ]) {
+    assert.equal(validateUrlRule({ pattern, action: "native" }).valid, false, pattern);
+  }
+  // 这类规则在旧实现里被接受但永远不会命中，现在必须被丢弃。
+  assert.deepEqual(normalizeSettings({
     ...base,
-    urlRules: [{ pattern: expandedPattern, action: "native" }]
-  }), "native");
+    urlRules: [{ pattern: "https://[invalid*]/*", action: "native" }]
+  }).urlRules, []);
 });
 test("星号可提供 authority 中的 @ 分隔符", () => {
   const pattern = "https://user:*example.com/*";
   assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
-  assert.equal(resolveAction("https://user:@example.com/x", {
-    ...base,
-    urlRules: [{ pattern, action: "native" }]
-  }), "native");
+  const settings = { ...base, urlRules: [{ pattern, action: "native" }] };
+  // 生产契约是序列化后的 href：星号在这里提供密码与 `@` 分隔符（`pass@`）。
+  assert.equal(resolveAction(new URL("https://user:pass@example.com/x").href, settings), "native");
+  // 序列化会丢弃空密码的冒号（`https://user:@example.com/x` 序列化为
+  // `https://user@example.com/x`），所以这种写法不可能命中规则。
+  assert.equal(resolveAction(new URL("https://user:@example.com/x").href, settings), "background");
 });
 test("星号可将非法端口字面变为 userinfo，固定非法端口仍拒绝", () => {
   const wildcardPattern = "https://example.com:65536*/*";
@@ -92,14 +107,18 @@ test("星号可将非法端口字面变为 userinfo，固定非法端口仍拒�
   assert.equal(validateUrlRule({ pattern: "https://example.com:65536/*", action: "foreground" }).valid, false);
 });
 test("网址规则支持独立通配符形成合法的普通主机和 userinfo", () => {
-  for (const pattern of [
-    // %61 是合法的主机名展开；两颗星分别需匹配空串和 "61"。
-    "https://*%*/*",
-    "https://*%*@example.com/*",
-    // URL parser 接受 %C3%80；星号需补上完整的百分号编码字节。
-    "https://%C3*/*"
+  for (const [pattern, href] of [
+    // 星号在 userinfo 里补出 `@` 与主机名；`%` 在序列化后的 userinfo 中保持原样。
+    ["https://*%*/*", "https://%41@a/x"],
+    ["https://*%*@example.com/*", "https://%41@example.com/x"],
+    ["https://%C3*/*", "https://%c3@a/x"]
   ]) {
-    assert.equal(validateUrlRule({ pattern, action: "background" }).valid, true, pattern);
+    assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true, pattern);
+    assert.equal(new URL(href).href, href, href);
+    assert.equal(resolveAction(href, {
+      ...base,
+      urlRules: [{ pattern, action: "native" }]
+    }), "native", pattern);
   }
 });
 test("网址规则接受可展开为合法 IPv6 authority 的通配符", () => {
@@ -147,6 +166,103 @@ test("超长 IPv6 通配符串的校验不会抛出", () => {
     result = validateUrlRule({ pattern, action: "native" });
   });
   assert.deepEqual(result, { valid: true });
+});
+
+// 不变式：validateUrlRule 接受的每个模式都必须能命中某个序列化后的 href，
+// 否则规则会被保存下来却永远不会生效。下面的 href 都已通过 new URL 往返验证，
+// 与内容脚本实际传入的 target.href 形式一致。
+test("接受的网址模式都能命中某个序列化后的 href", () => {
+  for (const [pattern, href] of [
+    ["https://*/*", "https://a/x"],
+    ["https://*.example.com/*", "https://a.example.com/x"],
+    ["https://*.com/*", "https://a.com/x"],
+    ["https://*:8080/*", "https://a:8080/x"],
+    ["https://*::1*/*", "https://[::1]/x"],
+    ["https://*@example.com/*", "https://a@example.com/x"],
+    ["https://*[::1]*/*", "https://a@[::1]/x"],
+    ["https://*%*/*", "https://%41@a/x"],
+    ["https://%C3*/*", "https://%c3@a/x"],
+    ["https://[*]/*", "https://[2001:db8::1]/x"],
+    ["https://[::*]/*", "https://[::]/x"],
+    ["https://[::*]:*/", "https://[::]:8080/"],
+    ["https://user:*/*", "https://user:pass@example.com/x"],
+    ["https://user:*example.com/*", "https://user:pass@example.com/x"],
+    ["https://x*@y*/*", "https://xa@ya/x"],
+    ["https://example.com:*/", "https://example.com:8080/"],
+    ["https://example.com:0*/*", "https://example.com:0/x"],
+    ["https://example.com:65535*/*", "https://example.com:65535/x"],
+    ["https://example.com:65536*/*", "https://example.com:65536@foo/x"],
+    ["https://[*]:65535*/*", "https://[2001:db8::1]:65535/x"],
+    ["https://**:*/*", "https://a:8080/x"],
+    // 数字主机：星号展开为空会被解析成 IPv4，因此校验时会要求星号至少展开一个字符。
+    ["https://0*/*", "https://0.0.0.0/x"],
+    ["https://192.168.1*/*", "https://192.168.1.5/x"],
+    // 无星号的模式：字面 authority 必须本身就是序列化结果。
+    ["https://example.com/*", "https://example.com/x"],
+    ["https://example.com./*", "https://example.com./x"],
+    ["https://localhost/*", "https://localhost/x"],
+    ["https://a_b.com/*", "https://a_b.com/x"],
+    ["https://a~b.com/*", "https://a~b.com/x"],
+    ["https://a;b.com/*", "https://a;b.com/x"],
+    ["https://a=b.com/*", "https://a=b.com/x"],
+    ["https://xn--fsqu00a.com/*", "https://xn--fsqu00a.com/x"],
+    ["https://[2001:db8::1]/*", "https://[2001:db8::1]/x"],
+    ["https://user:pass@example.com/*", "https://user:pass@example.com/x"],
+    ["https://example.com:8080/private/*", "https://example.com:8080/private/x"],
+    ["https://Example.com/Private/*", "https://example.com/Private/a"]
+  ]) {
+    assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true, pattern);
+    // href 必须本身就是浏览器序列化的结果，即内容脚本实际传入的形式。
+    assert.equal(new URL(href).href, href, href);
+    assert.equal(resolveAction(href, {
+      ...base,
+      urlRules: [{ pattern, action: "native" }]
+    }), "native", `${pattern} should match ${href}`);
+  }
+});
+
+// 回归：匹配改为线性通配符匹配。旧实现按 `*` 分段编译回溯正则，
+// 该模式对一长串不匹配的 `a` 需要十几秒，会冻结点击处理。
+test("病态通配符模式的匹配保持线性且不阻塞点击", () => {
+  const pattern = "https://example.com/" + "a*".repeat(9) + "b";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  const href = "https://example.com/" + "a".repeat(20000);
+  const startedAt = performance.now();
+  const action = resolveAction(href, { ...base, urlRules: [{ pattern, action: "native" }] });
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(action, "background");
+  assert.ok(elapsedMs < 250, `matching took ${elapsedMs.toFixed(1)}ms`);
+});
+// 回归：旧实现在约 1 万颗星时会因 new RegExp 抛出 SyntaxError，异常会逃出点击监听。
+test("超长星号序列的网址规则可正常校验和匹配且不抛错", () => {
+  const pattern = "https://example.com/" + "*".repeat(12000) + "tail";
+  assert.equal(validateUrlRule({ pattern, action: "native" }).valid, true);
+  const settings = { ...base, urlRules: [{ pattern, action: "native" }] };
+  assert.doesNotThrow(() => {
+    assert.equal(resolveAction("https://example.com/tail", settings), "native");
+    assert.equal(resolveAction("https://example.com/other", settings), "background");
+  });
+});
+// 匹配语义：`*` 匹配零个或多个字符，其余字符按字面比较。
+// 旧实现把模式编译成正则，这里确认正则元字符不再有特殊含义。
+test("通配符匹配按字面处理正则元字符且星号可匹配空串", () => {
+  const settings = {
+    ...base,
+    defaultAction: "native",
+    urlRules: [
+      { pattern: "https://example.com/a.b/*", action: "foreground" },
+      { pattern: "https://example.com/(x)+/*", action: "background" },
+      { pattern: "https://example.com/a*/b", action: "foreground" }
+    ]
+  };
+  assert.equal(resolveAction("https://example.com/a.b/c", settings), "foreground");
+  assert.equal(resolveAction("https://example.com/(x)+/c", settings), "background");
+  // `.` 不再匹配任意字符，`(x)+` 也不再表示重复。
+  assert.equal(resolveAction("https://example.com/axb/c", settings), "native");
+  assert.equal(resolveAction("https://example.com/xx/c", settings), "native");
+  // 星号匹配零个或多个字符。
+  assert.equal(resolveAction("https://example.com/a/b", settings), "foreground");
+  assert.equal(resolveAction("https://example.com/aXXb/b", settings), "foreground");
 });
 test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
   const normalized = normalizeSettings({
@@ -329,6 +445,30 @@ test("网址规则拒绝缺少主机名的模式", () => {
   }
 });
 
+// href 一律是序列化后的形式：IDN 主机是 punycode，非 ASCII 字符会被百分号编码，
+// 因此含非 ASCII 的模式永远匹配不到任何链接，必须直接拒绝并给出可操作的提示。
+test("网址规则拒绝非 ASCII 字符并提示改用 punycode", () => {
+  for (const pattern of [
+    "https://例子.com/*",
+    "https://example.com/中文/*",
+    "https://example.com/*?q=中文"
+  ]) {
+    const error = errorOf(urlRule(pattern));
+    assert.match(error, /punycode/);
+    assert.match(error, /xn--/);
+  }
+  assert.deepEqual(normalizeSettings({
+    ...base,
+    urlRules: [{ pattern: "https://例子.com/*", action: "native" }]
+  }).urlRules, []);
+  // punycode 形式照常可用，并且能命中同一域名真实的序列化 href。
+  const pattern = "https://xn--fsqu00a.com/*";
+  assert.equal(urlRule(pattern).valid, true);
+  const href = new URL("https://例子.com/x").href;
+  assert.equal(href, "https://xn--fsqu00a.com/x");
+  assert.equal(resolveAction(href, { ...base, urlRules: [{ pattern, action: "native" }] }), "native");
+});
+
 test("校验失败给出可区分的具体原因", () => {
   const domainErrors = new Set([
     errorOf(validateDomainRule(null)),
@@ -345,7 +485,8 @@ test("校验失败给出可区分的具体原因", () => {
     errorOf(urlRule("ftp://example.com/*")),
     errorOf(urlRule("https://")),
     errorOf(urlRule("https://exa mple.com/*")),
+    errorOf(urlRule("https://例子.com/*")),
     errorOf(urlRule("https://example.com/*", "bogus"))
   ]);
-  assert.equal(urlErrors.size, 6);
+  assert.equal(urlErrors.size, 7);
 });
