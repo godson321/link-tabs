@@ -9,6 +9,10 @@
 
 const ACTIONS = Object.freeze(["background", "foreground", "native"]);
 
+/** DNS 长度上限：主机名总长 253，单个标签 63（RFC 1035 / RFC 1123）。 */
+const MAX_DOMAIN_LENGTH = 253;
+const MAX_DOMAIN_LABEL_LENGTH = 63;
+
 const DEFAULT_SETTINGS = Object.freeze({
   enabled: true,
   defaultAction: "background",
@@ -54,19 +58,31 @@ function normalizeUrlForMatch(value) {
   return match[1].toLowerCase() + "://" + normalizeAuthority(match[2]) + match[3];
 }
 
+/**
+ * 校验域名规则。错误信息直接展示在设置页，故使用中文。
+ * 长度上限与 URL 主机名一致：超长域名不可能出现在任何网址中，必须判为无效而不是静默保存。
+ */
 function validateDomainRule(rule) {
-  if (!isPlainObject(rule)) return { valid: false, error: "Domain rule must be an object" };
+  if (!isPlainObject(rule)) return { valid: false, error: "域名规则格式不正确" };
   const domain = typeof rule.domain === "string" ? rule.domain.trim() : "";
-  if (!domain) return { valid: false, error: "Domain is required" };
+  if (!domain) return { valid: false, error: "请填写域名" };
   if (
     !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$/i.test(domain)
   ) {
-    return { valid: false, error: "Domain format is invalid" };
+    return { valid: false, error: "域名格式不正确" };
+  }
+  if (domain.length > MAX_DOMAIN_LENGTH) {
+    return { valid: false, error: `域名过长（最多 ${MAX_DOMAIN_LENGTH} 个字符）` };
+  }
+  for (const label of domain.split(".")) {
+    if (label.length > MAX_DOMAIN_LABEL_LENGTH) {
+      return { valid: false, error: `域名的一段过长（每段最多 ${MAX_DOMAIN_LABEL_LENGTH} 个字符）` };
+    }
   }
   if (typeof rule.includeSubdomains !== "boolean") {
-    return { valid: false, error: "includeSubdomains must be a boolean" };
+    return { valid: false, error: "“包含子域名”选项必须为布尔值" };
   }
-  if (!isSupportedAction(rule.action)) return { valid: false, error: "Action is invalid" };
+  if (!isSupportedAction(rule.action)) return { valid: false, error: "动作选项无效" };
   return { valid: true };
 }
 
@@ -416,17 +432,18 @@ function isValidUrlAuthority(authority) {
   return false;
 }
 
+/** 校验网址规则；错误信息直接展示在设置页，故使用中文。 */
 function validateUrlRule(rule) {
-  if (!isPlainObject(rule)) return { valid: false, error: "URL rule must be an object" };
+  if (!isPlainObject(rule)) return { valid: false, error: "网址规则格式不正确" };
   const pattern = typeof rule.pattern === "string" ? rule.pattern.trim() : "";
-  if (!pattern) return { valid: false, error: "Pattern is required" };
+  if (!pattern) return { valid: false, error: "请填写网址模式" };
   const match = /^(https?):\/\/([^/?#]*)([\s\S]*)$/i.exec(pattern);
-  if (!match) return { valid: false, error: "Pattern must be an HTTP or HTTPS URL" };
-  if (match[2] === "") return { valid: false, error: "Pattern must include a host" };
+  if (!match) return { valid: false, error: "网址模式必须使用 http:// 或 https:// 开头" };
+  if (match[2] === "") return { valid: false, error: "网址模式必须包含主机名" };
   if (!isValidUrlAuthority(match[2])) {
-    return { valid: false, error: "Pattern authority is invalid" };
+    return { valid: false, error: "网址模式的主机名、端口或 IPv6 地址无效" };
   }
-  if (!isSupportedAction(rule.action)) return { valid: false, error: "Action is invalid" };
+  if (!isSupportedAction(rule.action)) return { valid: false, error: "动作选项无效" };
   return { valid: true };
 }
 

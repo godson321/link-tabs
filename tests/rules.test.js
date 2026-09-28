@@ -1,7 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { performance } = require("node:perf_hooks");
-const { DEFAULT_SETTINGS, resolveAction, validateUrlRule } = require("../src/shared/rules.js");
+const {
+  DEFAULT_SETTINGS,
+  normalizeSettings,
+  resolveAction,
+  validateDomainRule,
+  validateUrlRule
+} = require("../src/shared/rules.js");
 
 const base = { ...DEFAULT_SETTINGS, enabled: true };
 test("默认行为是在后台打开", () => {
@@ -143,7 +149,6 @@ test("超长 IPv6 通配符串的校验不会抛出", () => {
   assert.deepEqual(result, { valid: true });
 });
 test("normalizeSettings 丢弃 authority 非法的网址规则", () => {
-  const { normalizeSettings } = require("../src/shared/rules.js");
   const normalized = normalizeSettings({
     ...base,
     urlRules: [
@@ -185,7 +190,6 @@ test("域名规则按列表顺序匹配，第一条匹配生效", () => {
   assert.equal(resolveAction("https://shop.example.com/", { ...base, domainRules: [rules[1]] }), "foreground");
 });
 test("normalizeSettings 填充默认值并过滤无效规则", () => {
-  const { normalizeSettings } = require("../src/shared/rules.js");
   assert.deepEqual(normalizeSettings(undefined), DEFAULT_SETTINGS);
   const normalized = normalizeSettings({
     enabled: false,
@@ -197,4 +201,151 @@ test("normalizeSettings 填充默认值并过滤无效规则", () => {
   assert.equal(normalized.defaultAction, "background");
   assert.deepEqual(normalized.domainRules, [{ domain: "example.com", includeSubdomains: false, action: "foreground" }]);
   assert.deepEqual(normalized.urlRules, [{ pattern: "https://example.com/*", action: "native" }]);
+});
+
+// ===== Task 3：设置页规则输入的边界校验 =====
+
+const domainRule = (domain, includeSubdomains = false, action = "background") => (
+  validateDomainRule({ domain, includeSubdomains, action })
+);
+const urlRule = (pattern, action = "background") => validateUrlRule({ pattern, action });
+const errorOf = result => {
+  assert.equal(result.valid, false);
+  assert.equal(typeof result.error, "string");
+  assert.notEqual(result.error.trim(), "");
+  return result.error;
+};
+
+test("规则校验只返回 { valid: true } 或带具体原因的失败对象", () => {
+  assert.deepEqual(domainRule("example.com"), { valid: true });
+  assert.deepEqual(urlRule("https://example.com/*"), { valid: true });
+  for (const result of [
+    validateDomainRule(null),
+    validateUrlRule(null),
+    validateDomainRule([{ domain: "example.com", includeSubdomains: false, action: "background" }]),
+    validateUrlRule([])
+  ]) {
+    errorOf(result);
+  }
+});
+
+test("域名规则接受规范域名格式", () => {
+  for (const domain of [
+    "example.com",
+    "sub.example.com",
+    "Example.COM",
+    "my-host.example.co.uk",
+    "localhost",
+    "xn--fiq228c.cn",
+    "192.168.1.1"
+  ]) {
+    assert.equal(domainRule(domain).valid, true, domain);
+  }
+});
+
+test("域名规则拒绝非法域名格式", () => {
+  for (const domain of [
+    "",
+    "   ",
+    "exa mple.com",
+    "-example.com",
+    "example-.com",
+    "example..com",
+    ".example.com",
+    "example.com.",
+    "*.example.com",
+    "http://example.com",
+    "example.com/path",
+    "example.com:8080",
+    "例子.com"
+  ]) {
+    errorOf(domainRule(domain));
+  }
+});
+
+test("域名规则要求包含子域名选项为布尔值", () => {
+  for (const includeSubdomains of [undefined, null, "true", "false", 0, 1]) {
+    errorOf(validateDomainRule({ domain: "example.com", includeSubdomains, action: "background" }));
+  }
+  assert.equal(domainRule("example.com", true).valid, true);
+});
+
+test("域名规则拒绝超出 DNS 长度上限的域名", () => {
+  const maxLabel = "a".repeat(63) + ".example.com";
+  const tooLongLabel = "a".repeat(64) + ".example.com";
+  const maxDomain = ["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(61)].join(".");
+  const tooLongDomain = ["a".repeat(63), "b".repeat(63), "c".repeat(63), "d".repeat(62)].join(".");
+  assert.equal(maxDomain.length, 253);
+  assert.equal(tooLongDomain.length, 254);
+  assert.equal(domainRule(maxLabel).valid, true);
+  assert.equal(domainRule(maxDomain).valid, true);
+  errorOf(domainRule(tooLongLabel));
+  errorOf(domainRule(tooLongDomain));
+  // 超过上限的域名不可能出现在任何网址主机名中，规则必须被判为无效而不能静默存入。
+  assert.deepEqual(
+    normalizeSettings({ domainRules: [{ domain: tooLongLabel, includeSubdomains: false, action: "background" }] }).domainRules,
+    []
+  );
+});
+
+test("规则动作必须是受支持的枚举值", () => {
+  for (const action of ["background", "foreground", "native"]) {
+    assert.equal(domainRule("example.com", false, action).valid, true, action);
+    assert.equal(urlRule("https://example.com/*", action).valid, true, action);
+  }
+  for (const action of ["Background", "back", "activate", "", null, undefined, 1]) {
+    // 直接构造规则对象，避免测试辅助函数的默认参数把 undefined 变成合法值。
+    errorOf(validateDomainRule({ domain: "example.com", includeSubdomains: false, action }));
+    errorOf(validateUrlRule({ pattern: "https://example.com/*", action }));
+  }
+});
+
+test("网址规则只接受 HTTP 与 HTTPS 模式", () => {
+  for (const pattern of [
+    "http://example.com/*",
+    "https://example.com/*",
+    "HTTPS://example.com/*",
+    "https://example.com:8080/path?q=1#frag",
+    "https://*.example.com/*"
+  ]) {
+    assert.equal(urlRule(pattern).valid, true, pattern);
+  }
+  for (const pattern of [
+    "ftp://example.com/*",
+    "javascript:alert(1)",
+    "chrome://settings/*",
+    "file:///c:/x/*",
+    "//example.com/*",
+    "example.com/*",
+    "https:/example.com/*"
+  ]) {
+    errorOf(urlRule(pattern));
+  }
+});
+
+test("网址规则拒绝缺少主机名的模式", () => {
+  for (const pattern of ["", "   ", "https://", "https:///path", "https://?q", "https://#f", "https:///*", "https://:8080/*"]) {
+    errorOf(urlRule(pattern));
+  }
+});
+
+test("校验失败给出可区分的具体原因", () => {
+  const domainErrors = new Set([
+    errorOf(validateDomainRule(null)),
+    errorOf(domainRule("")),
+    errorOf(domainRule("exa mple.com")),
+    errorOf(domainRule("a".repeat(64) + ".example.com")),
+    errorOf(validateDomainRule({ domain: "example.com", includeSubdomains: "yes", action: "background" })),
+    errorOf(domainRule("example.com", false, "bogus"))
+  ]);
+  assert.equal(domainErrors.size, 6);
+  const urlErrors = new Set([
+    errorOf(validateUrlRule(null)),
+    errorOf(urlRule("")),
+    errorOf(urlRule("ftp://example.com/*")),
+    errorOf(urlRule("https://")),
+    errorOf(urlRule("https://exa mple.com/*")),
+    errorOf(urlRule("https://example.com/*", "bogus"))
+  ]);
+  assert.equal(urlErrors.size, 6);
 });
