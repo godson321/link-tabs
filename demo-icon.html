@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>开链助手 · 图标候选</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #f6f6f6; color: #1b1b1b;
+         font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  .page { max-width: 940px; margin: 0 auto; padding: 28px 20px 56px; display: flex; flex-direction: column; gap: 16px; }
+  h1 { margin: 0 0 8px; font-size: 22px; }
+  h2 { margin: 0 0 10px; font-size: 16px; }
+  p { margin: 0; }
+  .card { background: #fff; border: 1px solid #dcdcdc; border-radius: 8px; padding: 16px 18px; }
+  .note { background: #eef5fc; border: 1px solid #bcd8f2; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #274b6d; line-height: 1.7; }
+  .lead { color: #555; font-size: 14px; line-height: 1.7; }
+  .variant { display: flex; gap: 18px; align-items: flex-start; padding: 14px 0; border-top: 1px solid #eee; }
+  .variant:first-child { border-top: none; padding-top: 0; }
+  .variant:last-child { padding-bottom: 0; }
+  .v-info { width: 215px; flex: none; }
+  .v-name { font-weight: 600; font-size: 15px; }
+  .v-desc { color: #666; font-size: 13px; margin-top: 3px; line-height: 1.6; }
+  .sizes { display: flex; align-items: flex-end; gap: 22px; }
+  .size-cell { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 11px; color: #999; }
+  .icon-frame { display: flex; align-items: center; justify-content: center; }
+  .strips { display: flex; flex-direction: column; gap: 10px; }
+  .strip { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; }
+  .strip.light { background: #f3f3f3; border: 1px solid #e0e0e0; }
+  .strip.dark { background: #2b2b2b; border: 1px solid #3a3a3a; }
+  .pill { flex: 1; height: 22px; border-radius: 999px; }
+  .strip.light .pill { background: #e3e3e3; }
+  .strip.dark .pill { background: #3d3d3d; }
+  .slot { width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex: none; }
+  .strip.light .slot { background: #e7e7e7; }
+  .strip.dark .slot { background: #383838; }
+  .neighbor { width: 16px; height: 16px; flex: none; opacity: .75; }
+  .strip-label { font-size: 12px; color: #888; width: 84px; flex: none; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<main class="page">
+  <header>
+    <h1>开链助手 · 扩展图标候选</h1>
+    <p class="lead">扩展目前没有自带图标，Edge 用名称首字生成了一个文字占位块。下面是 4 个<b>不含任何文字</b>的图形方案（蓝色底板 + 白色图形），挑一个即可。</p>
+  </header>
+
+  <p class="note">每行右侧是同一图形在 <b>16 / 32 / 48 / 128</b> 像素下的实际观感——16px 就是工具栏里的真实大小。页面底部有浅色 / 深色工具栏模拟。确认编号后，我会生成 16/32/48/128 的 PNG 写进 manifest。</p>
+
+  <section class="card" id="variants"></section>
+
+  <section class="card">
+    <h2>风格对比（以 A 为例）</h2>
+    <p class="lead" style="margin-bottom: 10px;">同一图形的两种画法：<b>蓝底板</b>（推荐，浅色深色工具栏下都清晰）与<b>纯描边</b>（更接近 Edge 自带图标的单色风格）。</p>
+    <div id="styles"></div>
+  </section>
+
+  <section class="card">
+    <h2>模拟工具栏（16px，右侧灰色方块为相邻扩展做大小参照）</h2>
+    <div class="strips" id="strips"></div>
+  </section>
+</main>
+
+<script>
+const ROUND = 'stroke-linecap="round" stroke-linejoin="round"';
+
+const GLYPHS = {
+  A: {
+    name: "A · 斜链环",
+    desc: "经典双环斜置，元素最少，16px 下轮廓最清楚",
+    body: `
+      <rect x="-16" y="-33" width="32" height="66" rx="16" transform="translate(47 47) rotate(45)"/>
+      <rect x="-16" y="-33" width="32" height="66" rx="16" transform="translate(81 81) rotate(45)"/>`
+  },
+  B: {
+    name: "B · 双圆环",
+    desc: "两个圆环横向互扣，孔洞大，小尺寸下最清楚",
+    body: `
+      <circle cx="44" cy="64" r="28"/>
+      <circle cx="84" cy="64" r="28"/>`
+  },
+  C: {
+    name: "C · 链环 + 加号",
+    desc: "右下角加号，点出“新建标签页”",
+    body: `
+      <rect x="-13" y="-26" width="26" height="52" rx="13" transform="translate(38 38) rotate(45)"/>
+      <rect x="-13" y="-26" width="26" height="52" rx="13" transform="translate(62 62) rotate(45)"/>
+      <path d="M104 91v26"/>
+      <path d="M91 104h26"/>`
+  },
+  D: {
+    name: "D · 链环 + 外链箭头",
+    desc: "右上角箭头，点出“打开 / 跳转”",
+    body: `
+      <rect x="-13" y="-26" width="26" height="52" rx="13" transform="translate(38 38) rotate(45)"/>
+      <rect x="-13" y="-26" width="26" height="52" rx="13" transform="translate(62 62) rotate(45)"/>
+      <path d="M88 40 110 18"/>
+      <path d="M88 18h22v22"/>`
+  }
+};
+
+function svgPlate(body) {
+  return '<svg viewBox="0 0 128 128" width="100%" height="100%" aria-hidden="true">'
+    + '<rect width="128" height="128" rx="26" fill="#0f6cbd"/>'
+    + '<g transform="translate(64 64) scale(0.72) translate(-64 -64)" fill="none" stroke="#fff" stroke-width="15" ' + ROUND + '>'
+    + body + '</g></svg>';
+}
+
+function svgBare(body, color) {
+  return '<svg viewBox="0 0 128 128" width="100%" height="100%" aria-hidden="true">'
+    + '<g fill="none" stroke="' + color + '" stroke-width="12" ' + ROUND + '>' + body + '</g></svg>';
+}
+
+function sizeCells(makeSvg, sizes) {
+  const wrap = document.createElement("div");
+  wrap.className = "sizes";
+  for (const size of sizes) {
+    const cell = document.createElement("div");
+    cell.className = "size-cell";
+    const frame = document.createElement("div");
+    frame.className = "icon-frame";
+    frame.style.width = size + "px";
+    frame.style.height = size + "px";
+    frame.innerHTML = makeSvg();
+    cell.append(frame, document.createTextNode(size + "px"));
+    wrap.append(cell);
+  }
+  return wrap;
+}
+
+const variantsEl = document.getElementById("variants");
+for (const glyph of Object.values(GLYPHS)) {
+  const row = document.createElement("div");
+  row.className = "variant";
+  const info = document.createElement("div");
+  info.className = "v-info";
+  info.innerHTML = '<div class="v-name"></div><div class="v-desc"></div>';
+  info.querySelector(".v-name").textContent = glyph.name;
+  info.querySelector(".v-desc").textContent = glyph.desc;
+  row.append(info, sizeCells(() => svgPlate(glyph.body), [16, 32, 48, 128]));
+  variantsEl.append(row);
+}
+
+const stylesEl = document.getElementById("styles");
+for (const style of [
+  { label: "蓝底板", make: () => svgPlate(GLYPHS.A.body) },
+  { label: "纯描边", make: () => svgBare(GLYPHS.A.body, "#0f6cbd") }
+]) {
+  const row = document.createElement("div");
+  row.className = "variant";
+  const info = document.createElement("div");
+  info.className = "v-info";
+  info.innerHTML = '<div class="v-name"></div>';
+  info.querySelector(".v-name").textContent = style.label;
+  row.append(info, sizeCells(style.make, [16, 32, 48, 128]));
+  stylesEl.append(row);
+}
+
+const NEIGHBOR = '<svg class="neighbor" viewBox="0 0 16 16" fill="#8a8a8a" aria-hidden="true">'
+  + '<rect x="1" y="1" width="6" height="6" rx="1.2"/><rect x="9" y="1" width="6" height="6" rx="1.2"/>'
+  + '<rect x="1" y="9" width="6" height="6" rx="1.2"/><rect x="9" y="9" width="6" height="6" rx="1.2"/></svg>';
+
+const stripsEl = document.getElementById("strips");
+for (const glyph of Object.values(GLYPHS)) {
+  for (const theme of ["light", "dark"]) {
+    const strip = document.createElement("div");
+    strip.className = "strip " + theme;
+    const label = document.createElement("span");
+    label.className = "strip-label";
+    label.textContent = glyph.name.split(" · ")[0] + " · " + (theme === "light" ? "浅色" : "深色");
+    const pill = document.createElement("span");
+    pill.className = "pill";
+    const neighbor = document.createElement("span");
+    neighbor.innerHTML = NEIGHBOR;
+    const slot = document.createElement("span");
+    slot.className = "slot";
+    const frame = document.createElement("span");
+    frame.style.cssText = "width:16px;height:16px;display:block;";
+    frame.innerHTML = svgPlate(glyph.body);
+    slot.append(frame);
+    strip.append(label, pill, neighbor, slot);
+    stripsEl.append(strip);
+  }
+}
+</script>
+</body>
+</html>

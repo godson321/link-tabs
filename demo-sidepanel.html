@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>侧边栏面板样式演示 · 后台新标签页</title>
+  <link rel="stylesheet" href="src/popup/popup.css">
+  <style>
+    /* 演示稿专用：仅用于本文件的样式，不进入扩展 */
+    body {
+      min-width: 0;
+      background: #dcdcdc;
+    }
+
+    .demo-page {
+      max-width: 1000px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .demo-header h1 { margin: 0 0 6px; font-size: 22px; }
+    .demo-header p { margin: 0; color: #555; font-size: 14px; }
+
+    .demo-note {
+      border: 1px dashed var(--accent);
+      border-radius: 6px;
+      background: var(--bg);
+      padding: 12px 16px;
+      color: #555;
+      font-size: 13px;
+    }
+
+    .demo-note strong { color: #1f1f1f; }
+    .demo-note ol { margin: 6px 0 0; padding-left: 20px; }
+    .demo-note li { margin: 2px 0; }
+
+    /* 模拟浏览器 */
+    .mock-browser {
+      background: #f3f3f3;
+      border: 1px solid #c8c8c8;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .mock-tabstrip {
+      padding: 6px 10px 0;
+      background: #dcdcdc;
+    }
+
+    .mock-tab {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 6px 6px 0 0;
+      background: #f3f3f3;
+      color: #444;
+      font-size: 12px;
+    }
+
+    .mock-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+    }
+
+    .mock-addr {
+      flex: 1;
+      padding: 4px 12px;
+      border: 1px solid #c8c8c8;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #444;
+      font-size: 12px;
+    }
+
+    .mock-ext-icons { display: flex; gap: 6px; }
+
+    .mock-ext-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .mock-sidebar-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      color: #444;
+      cursor: pointer;
+      animation: pulse-outline 1.6s ease-in-out infinite;
+    }
+
+    .mock-sidebar-button.mock-ext-seen { animation: none; }
+
+    .mock-sidebar-button.active {
+      outline: 2px solid var(--accent);
+      background: #ffffff;
+    }
+
+    @keyframes pulse-outline {
+      0%, 100% { outline: 3px solid rgba(15, 108, 189, 0.5); }
+      50% { outline: 3px solid rgba(15, 108, 189, 0.08); }
+    }
+
+    /* 窗口主体：左网页 + 右侧边栏 */
+    .mock-body {
+      display: flex;
+      min-height: 420px;
+      border-top: 1px solid #c8c8c8;
+      background: #ffffff;
+    }
+
+    .mock-page {
+      flex: 1;
+      padding: 16px 20px;
+      background: #ffffff;
+      color: #777;
+      font-size: 13px;
+      line-height: 1.8;
+    }
+
+    .mock-page h3 { margin: 0 0 8px; color: #444; font-size: 14px; }
+
+    .sidebar-panel {
+      width: 320px;
+      border-left: 1px solid var(--border);
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+    }
+
+    .sidebar-panel[hidden] { display: none; }
+
+    .sidebar-panel .popup { height: 100%; }
+
+    .sidebar-panel .secondary-button { margin-top: auto; }
+
+    /* 面板内字段样式（与 options 页同款观感） */
+    .popup .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .popup .field label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .popup .field select,
+    .popup .field input[type="text"] {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--fg);
+      font: inherit;
+    }
+
+    .popup .field input[readonly] { color: var(--muted); }
+
+    .popup .field-error {
+      margin: 0;
+      color: var(--error);
+      font-size: 12px;
+    }
+
+    .popup .divider {
+      width: 100%;
+      margin: 0;
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .demo-footer { margin: 0; color: #555; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="demo-page">
+    <header class="demo-header">
+      <h1>后台新标签页 · Edge 侧边栏面板样式演示</h1>
+      <p>这是“常驻侧边栏”形态的模拟：点工具栏右侧的侧边栏按钮打开/关闭；打开后页面变窄、面板常驻（点页面不会自动关闭）。</p>
+    </header>
+
+    <section class="demo-note">
+      <strong>说明：</strong>
+      <ol>
+        <li>点工具栏右侧<strong>闪烁高亮的侧边栏按钮</strong>打开/关闭面板——面板停靠在窗口右侧，网页相应变窄；</li>
+        <li>真实 Edge 中打开方式：工具栏的侧边栏按钮（或右键工具栏 → 自定义）；也可以设置<strong>“点击扩展图标直接打开侧边栏”</strong>（此时图标不再弹出小面板）；</li>
+        <li>与弹窗的核心区别：<strong>常驻、不随点击别处关闭</strong>，适合“控件想一直看得见”；代价是始终占用窗口右侧约 320px；</li>
+        <li>实现代价：manifest 增加 <code>sidePanel</code> 权限与一个侧栏页面文件；可与弹窗共存（控制同一份设置）；</li>
+        <li>面板内容与弹窗一致：总开关、搜索引擎下拉框、搜索地址文本框、设置按钮。</li>
+      </ol>
+    </section>
+
+    <div class="mock-browser">
+      <div class="mock-tabstrip"><span class="mock-tab">新标签页 ×</span></div>
+      <div class="mock-toolbar">
+        <div class="mock-addr">https://example.com/article</div>
+        <div class="mock-ext-icons">
+          <span class="mock-ext-icon" title="其他扩展（示意）">🧩</span>
+          <span class="mock-ext-icon" title="后台新标签页（示意）">▣</span>
+        </div>
+        <span class="mock-sidebar-button" id="mock-sidebar-button" title="侧边栏：点此打开/关闭侧边栏面板">
+          <svg viewBox="0 0 16 16" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true">
+            <rect x="1.5" y="2.5" width="13" height="11" rx="1.5"></rect>
+            <path d="M10 2.5v11"></path>
+          </svg>
+        </span>
+      </div>
+      <div class="mock-body">
+        <div class="mock-page">
+          <h3>网页内容（示意）</h3>
+          <p>这里是网页正文区域。打开侧边栏后，网页会相应变窄，但不会被遮挡。</p>
+          <p>侧边栏面板常驻显示，滚动、点击网页都不会把它关掉；关闭需要再点一次侧边栏按钮。</p>
+        </div>
+        <aside class="sidebar-panel" id="mock-sidebar" hidden>
+          <main class="popup">
+            <h1 class="popup-title">后台新标签页</h1>
+            <label class="switch">
+              <input type="checkbox" id="demo-enabled" checked>
+              <span class="switch-label">启用扩展</span>
+            </label>
+            <p id="demo-status" class="status" role="status" aria-live="polite">已启用：普通左键点击按规则打开新标签页。</p>
+            <hr class="divider">
+            <div class="field">
+              <label for="demo-engine">搜索引擎</label>
+              <select id="demo-engine">
+                <option value="bing">Bing</option>
+                <option value="google">Google</option>
+                <option value="baidu">百度</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="demo-search-url">搜索地址（%s 替换为搜索词）</label>
+              <input id="demo-search-url" type="text" value="https://www.bing.com/search?q=%s" readonly spellcheck="false">
+            </div>
+            <p id="demo-url-error" class="field-error" role="alert" hidden>搜索地址需以 http:// 或 https:// 开头，并包含 %s</p>
+            <button type="button" class="secondary-button">设置</button>
+          </main>
+        </aside>
+      </div>
+    </div>
+
+    <p class="demo-footer">演示说明：侧边栏按钮开关面板为演示行为；下拉框切换演示“预设只读 / 自定义可编辑”；文本框在“自定义”下演示错误提示；均不写入任何数据。</p>
+  </main>
+
+  <script>
+    const sidebarButton = document.getElementById("mock-sidebar-button");
+    const sidebarPanel = document.getElementById("mock-sidebar");
+
+    sidebarButton.addEventListener("click", () => {
+      sidebarPanel.hidden = !sidebarPanel.hidden;
+      sidebarButton.classList.toggle("active", !sidebarPanel.hidden);
+      sidebarButton.classList.add("mock-ext-seen");
+    });
+
+    const PRESETS = {
+      bing: "https://www.bing.com/search?q=%s",
+      google: "https://www.google.com/search?q=%s",
+      baidu: "https://www.baidu.com/s?wd=%s"
+    };
+    const engineSelect = document.getElementById("demo-engine");
+    const urlInput = document.getElementById("demo-search-url");
+    const urlError = document.getElementById("demo-url-error");
+    const demoStatus = document.getElementById("demo-status");
+
+    engineSelect.addEventListener("change", () => {
+      const isCustom = engineSelect.value === "custom";
+      if (!isCustom) {
+        urlInput.value = PRESETS[engineSelect.value];
+        urlInput.readOnly = true;
+        urlError.hidden = true;
+      } else {
+        urlInput.readOnly = false;
+        urlInput.focus();
+      }
+      demoStatus.textContent = "已保存（演示）：搜索引擎已更新";
+    });
+
+    urlInput.addEventListener("input", () => {
+      const value = urlInput.value;
+      const valid = (value.startsWith("http://") || value.startsWith("https://")) && value.includes("%s");
+      urlError.hidden = valid;
+    });
+
+    document.getElementById("demo-enabled").addEventListener("change", event => {
+      demoStatus.textContent = event.target.checked ? "已启用（演示）" : "已停用（演示）";
+    });
+  </script>
+</body>
+</html>

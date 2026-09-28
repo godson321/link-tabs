@@ -1,0 +1,277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>弹窗样式演示 · 后台新标签页</title>
+  <link rel="stylesheet" href="src/popup/popup.css">
+  <style>
+    /* 演示稿专用：仅用于本文件的样式，不进入扩展 */
+    body {
+      min-width: 0;
+      background: #dcdcdc;
+    }
+
+    .demo-page {
+      max-width: 780px;
+      margin: 0 auto;
+      padding: 24px 20px 40px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .demo-header h1 { margin: 0 0 6px; font-size: 22px; }
+    .demo-header p { margin: 0; color: #555; font-size: 14px; }
+
+    .demo-note {
+      border: 1px dashed var(--accent);
+      border-radius: 6px;
+      background: var(--bg);
+      padding: 12px 16px;
+      color: #555;
+      font-size: 13px;
+    }
+
+    .demo-note strong { color: #1f1f1f; }
+    .demo-note ol { margin: 6px 0 0; padding-left: 20px; }
+    .demo-note li { margin: 2px 0; }
+
+    /* 模拟浏览器工具栏与弹窗位置 */
+    .mock-browser {
+      background: #f3f3f3;
+      border: 1px solid #c8c8c8;
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    .mock-tabstrip {
+      padding: 6px 10px 0;
+      background: #dcdcdc;
+    }
+
+    .mock-tab {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 6px 6px 0 0;
+      background: #f3f3f3;
+      color: #444;
+      font-size: 12px;
+    }
+
+    .mock-toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+    }
+
+    .mock-addr {
+      flex: 1;
+      padding: 4px 12px;
+      border: 1px solid #c8c8c8;
+      border-radius: 999px;
+      background: #ffffff;
+      color: #444;
+      font-size: 12px;
+    }
+
+    .mock-ext-icons { display: flex; gap: 6px; }
+
+    .mock-ext-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 26px;
+      height: 26px;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+
+    .mock-ext-active {
+      outline: 2px solid var(--accent);
+      background: #ffffff;
+    }
+
+    .mock-ext-activate {
+      cursor: pointer;
+      animation: pulse-outline 1.6s ease-in-out infinite;
+    }
+
+    .mock-ext-seen { animation: none; }
+
+    @keyframes pulse-outline {
+      0%, 100% { outline: 3px solid rgba(15, 108, 189, 0.5); }
+      50% { outline: 3px solid rgba(15, 108, 189, 0.08); }
+    }
+
+    .mock-anchor {
+      display: flex;
+      justify-content: flex-end;
+      padding: 0 10px 14px;
+    }
+
+    .popup-frame {
+      width: 300px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.18);
+      overflow: hidden;
+    }
+
+    /* 弹窗内新增字段的样式（与 options 页同款观感） */
+    .popup .field {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .popup .field label {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .popup .field select,
+    .popup .field input[type="text"] {
+      width: 100%;
+      padding: 5px 8px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--fg);
+      font: inherit;
+    }
+
+    .popup .field input[readonly] { color: var(--muted); }
+
+    .popup .field-error {
+      margin: 0;
+      color: var(--error);
+      font-size: 12px;
+    }
+
+    .popup .divider {
+      width: 100%;
+      margin: 0;
+      border: none;
+      border-top: 1px solid var(--border);
+    }
+
+    .demo-footer { margin: 0; color: #555; font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="demo-page">
+    <header class="demo-header">
+      <h1>后台新标签页 · 工具栏弹窗样式演示</h1>
+      <p>搜索引擎设置从设置页移到扩展弹窗（点地址栏右侧的扩展图标弹出）。下图为静态样式稿，用于确认布局与字段。</p>
+    </header>
+
+    <section class="demo-note">
+      <strong>说明与请确认的点：</strong>
+      <ol>
+        <li><strong>点击模拟工具栏中高亮的扩展图标</strong>打开/关闭面板（模拟真实行为：点击面板以外的区域会关闭）；面板里的下拉框与文本框都可实际操作；</li>
+        <li>扩展无法把控件直接画进浏览器工具栏本身（地址栏右侧那条属于 Edge 自身界面）；可实现的最近形态就是<strong>扩展弹窗面板</strong>——下图模拟了它在工具栏中的位置与外观；</li>
+        <li>新增<strong>下拉框</strong>（Bing / Google / 百度 / 自定义）与<strong>文本框</strong>（搜索地址，<code>%s</code> 处填入搜索词）；选预设时文本框自动填入且只读，选“自定义”后可编辑；</li>
+        <li>搜索地址非 <code>http(s)://</code> 开头或缺少 <code>%s</code> 时，在文本框下方提示错误；</li>
+        <li>总开关与“设置”按钮保持原位；</li>
+        <li>设置页对应移除“搜索引擎”卡片（见 demo-rules-table.html，已同步更新）。</li>
+      </ol>
+    </section>
+
+    <div class="mock-browser">
+      <div class="mock-tabstrip"><span class="mock-tab">新标签页 ×</span></div>
+      <div class="mock-toolbar">
+        <div class="mock-addr">edge://extensions</div>
+        <div class="mock-ext-icons">
+          <span class="mock-ext-icon" title="其他扩展（示意）">🧩</span>
+          <span class="mock-ext-icon mock-ext-activate" id="mock-ext-icon" title="后台新标签页：点此打开/关闭面板">▣</span>
+        </div>
+      </div>
+      <div class="mock-anchor" id="popup-anchor" hidden>
+        <div class="popup-frame">
+          <main class="popup">
+            <h1 class="popup-title">后台新标签页</h1>
+            <label class="switch">
+              <input type="checkbox" id="demo-enabled" checked>
+              <span class="switch-label">启用扩展</span>
+            </label>
+            <p id="demo-status" class="status" role="status" aria-live="polite">已启用：普通左键点击按规则打开新标签页。</p>
+            <hr class="divider">
+            <div class="field">
+              <label for="demo-engine">搜索引擎</label>
+              <select id="demo-engine">
+                <option value="bing">Bing</option>
+                <option value="google">Google</option>
+                <option value="baidu">百度</option>
+                <option value="custom">自定义</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="demo-search-url">搜索地址（%s 替换为搜索词）</label>
+              <input id="demo-search-url" type="text" value="https://www.bing.com/search?q=%s" readonly spellcheck="false">
+            </div>
+            <p id="demo-url-error" class="field-error" role="alert" hidden>搜索地址需以 http:// 或 https:// 开头，并包含 %s</p>
+            <button type="button" class="secondary-button">设置</button>
+          </main>
+        </div>
+      </div>
+    </div>
+
+    <p class="demo-footer">演示说明：切换下拉框会演示“预设自动填入/只读、自定义可编辑”；在“自定义”下修改文本框会演示错误提示；均为演示行为，不写入任何数据。</p>
+  </main>
+
+  <script>
+    const PRESETS = {
+      bing: "https://www.bing.com/search?q=%s",
+      google: "https://www.google.com/search?q=%s",
+      baidu: "https://www.baidu.com/s?wd=%s"
+    };
+    const engineSelect = document.getElementById("demo-engine");
+    const urlInput = document.getElementById("demo-search-url");
+    const urlError = document.getElementById("demo-url-error");
+    const demoStatus = document.getElementById("demo-status");
+
+    engineSelect.addEventListener("change", () => {
+      const isCustom = engineSelect.value === "custom";
+      if (!isCustom) {
+        urlInput.value = PRESETS[engineSelect.value];
+        urlInput.readOnly = true;
+        urlError.hidden = true;
+      } else {
+        urlInput.readOnly = false;
+        urlInput.focus();
+      }
+      demoStatus.textContent = "已保存（演示）：搜索引擎已更新";
+    });
+
+    urlInput.addEventListener("input", () => {
+      const value = urlInput.value;
+      const valid = (value.startsWith("http://") || value.startsWith("https://")) && value.includes("%s");
+      urlError.hidden = valid;
+    });
+
+    document.getElementById("demo-enabled").addEventListener("change", event => {
+      demoStatus.textContent = event.target.checked ? "已启用（演示）" : "已停用（演示）";
+    });
+
+    // 模拟真实弹窗的打开/关闭：点图标切换，点面板以外区域关闭。
+    const extIcon = document.getElementById("mock-ext-icon");
+    const popupAnchor = document.getElementById("popup-anchor");
+
+    extIcon.addEventListener("click", event => {
+      event.stopPropagation();
+      popupAnchor.hidden = !popupAnchor.hidden;
+      extIcon.classList.toggle("mock-ext-active", !popupAnchor.hidden);
+      extIcon.classList.add("mock-ext-seen");
+    });
+
+    document.addEventListener("click", event => {
+      if (!popupAnchor.hidden && !event.target.closest(".popup-frame")) {
+        popupAnchor.hidden = true;
+        extIcon.classList.remove("mock-ext-active");
+      }
+    });
+  </script>
+</body>
+</html>

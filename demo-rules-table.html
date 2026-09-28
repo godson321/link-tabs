@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>规则区域样式演示 · 后台新标签页</title>
+  <link rel="stylesheet" href="src/options/options.css">
+  <style>
+    /* 演示稿专用：仅用于本文件的样式，不进入扩展 */
+    .page { max-width: 920px; }
+
+    .demo-note {
+      border: 1px dashed var(--accent);
+      border-radius: 6px;
+      background: var(--card-bg);
+      padding: 12px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .demo-note strong { color: var(--fg); }
+    .demo-note ol { margin: 6px 0 0; padding-left: 20px; }
+    .demo-note li { margin: 2px 0; }
+
+    .rules-toolbar {
+      display: flex;
+      justify-content: flex-end;
+      margin: 4px 0 8px;
+    }
+
+    .rules-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 4px;
+      font-size: 13px;
+      table-layout: fixed;
+    }
+
+    .rules-table th,
+    .rules-table td {
+      border-bottom: 1px solid var(--border);
+      padding: 7px 8px;
+      text-align: left;
+      vertical-align: middle;
+    }
+
+    .rules-table th {
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 12px;
+      line-height: 1.35;
+    }
+
+    .rules-table th .sub {
+      display: block;
+      font-size: 11px;
+    }
+
+    .rules-table th .sub input[type="checkbox"] {
+      margin-top: 3px;
+    }
+
+    .rules-table td.center,
+    .rules-table th.center { text-align: center; }
+
+    .rules-table input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      margin: 0;
+      accent-color: var(--accent);
+    }
+
+    .rules-table .value {
+      font-family: Consolas, "Courier New", monospace;
+      word-break: break-all;
+    }
+
+    .rules-table .badge {
+      display: inline-block;
+      padding: 0 6px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .action-badge {
+      display: inline-block;
+      min-width: 20px;
+      padding: 1px 4px;
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .group-divider td {
+      color: var(--muted);
+      font-size: 12px;
+      padding-top: 12px;
+    }
+
+    /* 列头复选框取消后：该列行内勾选整体变灰并停用（保留原值） */
+    table.col-click-off td[data-col="click"] input,
+    table.col-drag-off td[data-col="drag"] input,
+    table.col-search-off td[data-col="search"] input {
+      opacity: 0.35;
+      pointer-events: none;
+    }
+
+    table.col-click-off th[data-col="click"] .col-name,
+    table.col-drag-off th[data-col="drag"] .col-name,
+    table.col-search-off th[data-col="search"] .col-name {
+      opacity: 0.55;
+    }
+
+    .row-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .icon-button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 28px;
+      height: 26px;
+      padding: 0;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .icon-button:hover {
+      border-color: var(--error);
+      color: var(--error);
+      filter: none;
+    }
+
+    /* 新增规则的弹窗 */
+    dialog.rule-dialog {
+      width: 460px;
+      max-width: calc(100vw - 48px);
+      padding: 18px 20px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card-bg);
+      color: var(--fg);
+      font: inherit;
+    }
+
+    dialog.rule-dialog::backdrop {
+      background: rgba(0, 0, 0, 0.35);
+    }
+
+    dialog.rule-dialog h2 {
+      margin: 0 0 12px;
+      font-size: 16px;
+    }
+
+    dialog.rule-dialog .field input[type="text"],
+    dialog.rule-dialog .field select {
+      max-width: none;
+    }
+
+    dialog.rule-dialog .group-label {
+      margin: 4px 0 6px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .demo-footer { color: var(--muted); font-size: 13px; }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="page-header">
+      <h1>后台新标签页 · 规则区域样式演示</h1>
+      <p class="subtitle">这是静态样式稿（mockup），用于确认“合并表格 + 列头全局启停 + 三列复选框 + 缩写动作 + 图标删除 + 弹窗新增”的布局；核对后方才实现到扩展中。</p>
+    </header>
+
+    <section class="demo-note">
+      <strong>请重点确认（演示中已按以下方式绘制）：</strong>
+      <ol>
+        <li>域名规则与网址规则<strong>合并为一张表</strong>，用“类型”列区分；</li>
+        <li>表格三个功能列（列头精简为：<strong>点击 / 拖链接 / 拖文字</strong>，悬停或见卡片内图例可看全称），每格一个复选框，勾选/取消即时保存；</li>
+        <li><strong>列头复选框 = 该功能的全局启停</strong>：取消后该功能在所有网站整体停用，该列行内勾选变灰并停用（原值保留），重新勾选即恢复——点一下列头试试效果；</li>
+        <li>规则只提供“删除”图标按钮（悬停变红；无编辑、上移、下移）；修改规则 = 删除后重新添加；</li>
+        <li>匹配顺序保持现状：先按顺序检查<strong>全部网址规则</strong>，再检查域名规则（表格按此顺序排列，中间有分隔行）；组内顺序即添加顺序；</li>
+        <li><strong>新增规则改为弹窗</strong>：点右上角“添加规则”打开，含类型切换、动作与“作用于”三项勾选；三项全不勾时弹窗内提示错误、不关闭；</li>
+        <li>功能开关卡片与搜索引擎卡片已移除（全局启停并入表格列头；搜索引擎移到工具栏弹窗，见 demo-popup.html）；</li>
+        <li>动作列用单字缩写：后 = 后台新标签页，前 = 前台新标签页，原 = 按浏览器原行为（悬停显示全称，图例在规则卡片内）；</li>
+        <li>页面最大宽度由 760px 调整为 920px 以便容纳表格。</li>
+      </ol>
+    </section>
+
+    <p id="demo-status" class="status" role="status" aria-live="polite"></p>
+
+    <section class="card">
+      <h2>全局默认行为</h2>
+      <div class="field">
+        <label for="demo-default-action">没有规则命中时</label>
+        <select id="demo-default-action">
+          <option>后台新标签页</option>
+          <option>前台新标签页</option>
+          <option>按浏览器原行为</option>
+        </select>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>规则</h2>
+      <p class="hint">按顺序匹配，<strong>第一条命中的规则生效</strong>：先检查全部网址规则，再检查域名规则；表格按此顺序排列。拖动文字搜索按当前所在页面的网址/域名匹配。</p>
+      <p class="hint">动作：<span class="action-badge" title="后台新标签页">后</span> = 后台新标签页，<span class="action-badge" title="前台新标签页">前</span> = 前台新标签页，<span class="action-badge" title="按浏览器原行为">原</span> = 按浏览器原行为。列头：点击 = 点击链接；拖链接 = 拖动链接到空白处松手；拖文字 = 拖动选中的文字搜索（按当前页面匹配）；列头复选框 = 该功能的全局启停。</p>
+
+      <div class="rules-toolbar">
+        <button type="button" id="open-add-dialog">添加规则</button>
+      </div>
+
+      <table class="rules-table" id="rules-table">
+        <colgroup>
+          <col style="width: 52px;">
+          <col>
+          <col style="width: 46px;">
+          <col style="width: 56px;">
+          <col style="width: 56px;">
+          <col style="width: 56px;">
+          <col style="width: 46px;">
+        </colgroup>
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>规则</th>
+            <th class="center">动作</th>
+            <th class="center" data-col="click" title="点击链接"><span class="col-name">点击</span><span class="sub"><input type="checkbox" id="header-click" checked title="全局启用：点击链接" aria-label="全局启用：点击链接"></span></th>
+            <th class="center" data-col="drag" title="拖动链接到页面空白处松手"><span class="col-name">拖链接</span><span class="sub"><input type="checkbox" id="header-drag" checked title="全局启用：拖动链接" aria-label="全局启用：拖动链接"></span></th>
+            <th class="center" data-col="search" title="拖动选中的文字搜索（按当前页面匹配）"><span class="col-name">拖文字</span><span class="sub"><input type="checkbox" id="header-search" checked title="全局启用：拖动文字搜索（按当前页面匹配）" aria-label="全局启用：拖动文字搜索"></span></th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="badge">网址</span></td>
+            <td class="value">https://example.com/private/*</td>
+            <td class="center"><span class="action-badge" title="按浏览器原行为">原</span></td>
+            <td class="center" data-col="click"><input type="checkbox" checked aria-label="https://example.com/private/* 的点击链接"></td>
+            <td class="center" data-col="drag"><input type="checkbox" aria-label="https://example.com/private/* 的拖动链接"></td>
+            <td class="center" data-col="search"><input type="checkbox" aria-label="https://example.com/private/* 的拖动文字搜索"></td>
+            <td>
+              <div class="row-actions">
+                <button type="button" class="icon-button" title="删除" aria-label="删除规则：https://example.com/private/*">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2.5 4.5h11"></path>
+                    <path d="M6.5 2.5h3"></path>
+                    <path d="M4 4.5l.7 8.1a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.1"></path>
+                    <path d="M6.6 7v4"></path>
+                    <path d="M9.4 7v4"></path>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge">网址</span></td>
+            <td class="value">https://*.shop.example.com/*</td>
+            <td class="center"><span class="action-badge" title="前台新标签页">前</span></td>
+            <td class="center" data-col="click"><input type="checkbox" checked aria-label="https://*.shop.example.com/* 的点击链接"></td>
+            <td class="center" data-col="drag"><input type="checkbox" checked aria-label="https://*.shop.example.com/* 的拖动链接"></td>
+            <td class="center" data-col="search"><input type="checkbox" checked aria-label="https://*.shop.example.com/* 的拖动文字搜索"></td>
+            <td>
+              <div class="row-actions">
+                <button type="button" class="icon-button" title="删除" aria-label="删除规则：https://*.shop.example.com/*">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2.5 4.5h11"></path>
+                    <path d="M6.5 2.5h3"></path>
+                    <path d="M4 4.5l.7 8.1a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.1"></path>
+                    <path d="M6.6 7v4"></path>
+                    <path d="M9.4 7v4"></path>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr class="group-divider">
+            <td colspan="7">以下为域名规则（匹配顺序在全部网址规则之后）</td>
+          </tr>
+          <tr>
+            <td><span class="badge">域名</span></td>
+            <td class="value">example.com（含子域名）</td>
+            <td class="center"><span class="action-badge" title="后台新标签页">后</span></td>
+            <td class="center" data-col="click"><input type="checkbox" checked aria-label="example.com 的点击链接"></td>
+            <td class="center" data-col="drag"><input type="checkbox" checked aria-label="example.com 的拖动链接"></td>
+            <td class="center" data-col="search"><input type="checkbox" checked aria-label="example.com 的拖动文字搜索"></td>
+            <td>
+              <div class="row-actions">
+                <button type="button" class="icon-button" title="删除" aria-label="删除规则：example.com">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2.5 4.5h11"></path>
+                    <path d="M6.5 2.5h3"></path>
+                    <path d="M4 4.5l.7 8.1a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.1"></path>
+                    <path d="M6.6 7v4"></path>
+                    <path d="M9.4 7v4"></path>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td><span class="badge">域名</span></td>
+            <td class="value">news.example.com</td>
+            <td class="center"><span class="action-badge" title="按浏览器原行为">原</span></td>
+            <td class="center" data-col="click"><input type="checkbox" checked aria-label="news.example.com 的点击链接"></td>
+            <td class="center" data-col="drag"><input type="checkbox" aria-label="news.example.com 的拖动链接"></td>
+            <td class="center" data-col="search"><input type="checkbox" aria-label="news.example.com 的拖动文字搜索"></td>
+            <td>
+              <div class="row-actions">
+                <button type="button" class="icon-button" title="删除" aria-label="删除规则：news.example.com">
+                  <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M2.5 4.5h11"></path>
+                    <path d="M6.5 2.5h3"></path>
+                    <path d="M4 4.5l.7 8.1a1.2 1.2 0 0 0 1.2 1.1h4.2a1.2 1.2 0 0 0 1.2-1.1l.7-8.1"></path>
+                    <path d="M6.6 7v4"></path>
+                    <path d="M9.4 7v4"></path>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <p class="demo-footer">演示说明：勾选框点击后会显示“已保存（演示）”，仅为展示交互位置，不写入任何数据；列头复选框取消后会让整列变灰（演示全局停用效果）；删除按钮为图标（悬停变红）。</p>
+  </main>
+
+  <dialog class="rule-dialog" id="add-dialog" aria-labelledby="add-dialog-title">
+    <h2 id="add-dialog-title">添加规则</h2>
+    <form id="add-form">
+      <div class="field">
+        <label for="demo-type">类型</label>
+        <select id="demo-type">
+          <option value="url">网址规则</option>
+          <option value="domain">域名规则</option>
+        </select>
+      </div>
+      <div class="field" id="demo-url-fields">
+        <label for="demo-pattern">网址模式</label>
+        <input id="demo-pattern" type="text" placeholder="https://example.com/path/*" spellcheck="false">
+      </div>
+      <div class="field" id="demo-domain-fields" hidden>
+        <label for="demo-domain">域名</label>
+        <input id="demo-domain" type="text" placeholder="example.com" spellcheck="false">
+      </div>
+      <div class="field field-checkbox" id="demo-subdomains-field" hidden>
+        <input id="demo-subdomains" type="checkbox">
+        <label for="demo-subdomains">包含子域名</label>
+      </div>
+      <div class="field">
+        <label for="demo-action">动作</label>
+        <select id="demo-action">
+          <option>后台新标签页</option>
+          <option>前台新标签页</option>
+          <option>按浏览器原行为</option>
+        </select>
+      </div>
+      <p class="group-label">作用于：</p>
+      <div class="field field-checkbox">
+        <input id="dialog-click" type="checkbox" checked>
+        <label for="dialog-click">点击链接</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="dialog-drag" type="checkbox" checked>
+        <label for="dialog-drag">拖动链接</label>
+      </div>
+      <div class="field field-checkbox">
+        <input id="dialog-search" type="checkbox" checked>
+        <label for="dialog-search">拖动文字搜索（按当前页面匹配）</label>
+      </div>
+      <p id="dialog-error" class="field-error" role="alert" hidden>请至少勾选一个功能</p>
+      <div class="dialog-actions">
+        <button type="button" class="secondary-button" id="add-cancel">取消</button>
+        <button type="submit">添加规则</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script>
+    const demoType = document.getElementById("demo-type");
+    const demoUrlFields = document.getElementById("demo-url-fields");
+    const demoDomainFields = document.getElementById("demo-domain-fields");
+    const demoSubdomainsField = document.getElementById("demo-subdomains-field");
+    const demoStatus = document.getElementById("demo-status");
+    const rulesTable = document.getElementById("rules-table");
+    const addDialog = document.getElementById("add-dialog");
+    const dialogError = document.getElementById("dialog-error");
+
+    demoType.addEventListener("change", () => {
+      const isUrl = demoType.value === "url";
+      demoUrlFields.hidden = !isUrl;
+      demoDomainFields.hidden = isUrl;
+      demoSubdomainsField.hidden = isUrl;
+    });
+
+    for (const [id, column] of [["header-click", "click"], ["header-drag", "drag"], ["header-search", "search"]]) {
+      const box = document.getElementById(id);
+      box.addEventListener("change", () => {
+        rulesTable.classList.toggle(`col-${column}-off`, !box.checked);
+        demoStatus.textContent = box.checked
+          ? "已保存（演示）：该功能已全局启用"
+          : "已保存（演示）：该功能已全局停用（该列行内勾选变灰保留）";
+      });
+    }
+
+    document.getElementById("open-add-dialog").addEventListener("click", () => {
+      dialogError.hidden = true;
+      addDialog.showModal();
+    });
+
+    document.getElementById("add-cancel").addEventListener("click", () => addDialog.close());
+
+    document.getElementById("add-form").addEventListener("submit", event => {
+      event.preventDefault();
+      const applies = [...event.target.querySelectorAll('input[type="checkbox"]')];
+      if (!applies.some(box => box.checked)) {
+        dialogError.hidden = false;
+        return;
+      }
+      addDialog.close();
+      demoStatus.textContent = "已添加（演示）";
+    });
+
+    // 演示：其余控件变化时提示“已保存”，仅为展示交互位置。
+    document.addEventListener("change", event => {
+      if (event.target.closest("#add-dialog")) return;
+      if (event.target.matches('input[type="checkbox"]:not([id^="header-"]), select')) {
+        demoStatus.textContent = "已保存（演示）";
+      }
+    });
+  </script>
+</body>
+</html>
