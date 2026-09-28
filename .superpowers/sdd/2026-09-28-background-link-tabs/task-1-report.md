@@ -399,3 +399,73 @@ https://example.com:65535*/*: true
 - 完整回归覆盖仍包括 malformed authority 拒绝、大小写及规则优先级；本轮未改 resolver 匹配语义。
 - IPv4-embedded IPv6 的**字面地址**继续由 URL parser 分支识别；本轮没有扩展通配符 IPv4-embedded IPv6 的语言范围（此前回合也记录为未支持）。
 - 未派发 reviewer/agents，遵循本任务禁止派发 agents 的指示；自审关注点为 authority NFA 与 WHATWG URL parser 规则需要保持同步。
+
+---
+
+# Task 1 修复报告（fix round 5/5）
+
+- 状态：DONE
+- FIX_BASE：`17d656ba808f84c97cc2dad8cca83573506ac589`
+- 修复提交：`db2ccb8` — `fix: align wildcard URL validation with matching`
+- 改动文件：`src/shared/rules.js`、`tests/rules.test.js`、本报告；未改 spec、plan 或 progress ledger。
+
+## 根因与修复
+
+- 根因：round 4 的 authority NFA 将 `@`、`:`、`[`、`]` 标为 structural，并跳过通配符到这些边的转换。这与运行时 `*` → `.*` 不一致，排除了可由星号合成合法 authority 分隔符的 URL 展开。
+- NFA 搜索现允许星号匹配任何字符，保留迭代式、去重的乘积状态搜索及 URL parser 对见证字符串的有效性确认；移除了不再适用的 structural 标记。
+- `resolveAction` 仍首先解析并校验 URL、匹配规范化 `href`；另比较经相同 scheme/hostname 大小写处理的原始输入字符串。这样保留 URL parser 序列化会丢弃的有效空密码冒号，例如 `https://user:@example.com/x`，以落实字面 glob 语义，同时路径/查询大小写仍敏感。
+
+## TDD / 回归证据
+
+- RED：修改实现前运行 `node --test tests/rules.test.js`，22 项中 3 项失败，正是新加的 IPv6 方括号、`@` 分隔符、`:65536*` 验收；其余 19 项通过。
+- GREEN：以下完整 `npm test` 在代码提交前运行，退出码 0，22/22 通过。新增验证与 `resolveAction` 回归覆盖 `https://*::1*/*` → `[::1]`、`https://user:*example.com/*` → `user:@example.com`、`https://example.com:65536*/*` → `example.com:65536@foo`；固定 `https://example.com:65536/*` 继续拒绝。
+- 按 binding ruling，`https://[invalid*]/*` 也不是必然无效：星号可提供 `@` 和后续 IPv6 authority 字符，存在经 URL parser 接受的展开；测试记录此语言交集行为。无星号的 `https://[invalid]/*` 仍作为 malformed 回归拒绝。
+
+### 全量测试的确切命令与输出
+
+命令：`npm test`（退出码 0）
+
+```text
+> test
+> node --test
+
+✔ 默认行为是在后台打开 (1.75ms)
+✔ 可配置全局默认行为 (0.1625ms)
+✔ 网址规则覆盖域名规则，且网址规则按列表顺序匹配 (0.8831ms)
+✔ 域名规则按边界匹配子域 (0.2148ms)
+✔ 禁用和非网页协议不拦截 (0.1245ms)
+✔ 拒绝非 HTTP/HTTPS 网址规则 (0.0825ms)
+✔ 拒绝主机名、端口或 IPv6 非法的网址规则 (0.1359ms)
+✔ 网址规则接受合法主机、端口与通配符 (5.2434ms)
+✔ 星号可提供 IPv6 authority 所需的方括号 (6.1253ms)
+✔ 星号可提供 authority 中的 @ 分隔符 (7.462ms)
+✔ 星号可将非法端口字面变为 userinfo，固定非法端口仍拒绝 (2.159ms)
+✔ 网址规则支持独立通配符形成合法的普通主机和 userinfo (6.8437ms)
+✔ 网址规则接受可展开为合法 IPv6 authority 的通配符 (2.8092ms)
+✔ authority 通配符可用空展开保留有效端口 (0.4291ms)
+✔ IPv6 authority 与端口通配符可分别选择有效展开 (4.2412ms)
+✔ 拒绝包含长通配符序列和不可能字面的 IPv6 模式且校验及时 (10.0846ms)
+✔ 超长 IPv6 通配符串的校验不会抛出 (1.9642ms)
+✔ normalizeSettings 丢弃 authority 非法的网址规则 (1.7995ms)
+✔ 网址规则主机名不区分大小写但路径区分大小写 (0.3172ms)
+✔ 域名规则默认只匹配完整主机名 (0.197ms)
+✔ 域名规则按列表顺序匹配，第一条匹配生效 (0.1259ms)
+✔ normalizeSettings 填充默认值并过滤无效规则 (0.1868ms)
+ℹ tests 22
+ℹ suites 0
+ℹ pass 22
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 166.8158
+```
+
+补充验证：`git diff --check` 退出码 0，无 whitespace error（Git 仅提示 Windows 下 LF→CRLF 转换）。
+
+## 自审与关注点
+
+- 保留长 pattern 迭代/栈安全与 round-4 性能/malformed、已有大小写、规则排序、通配符和 resolver 测试；无需额外依赖。
+- 显式 supersede round 4 报告中“`https://example.com:65536*/*` 应拒绝”的旧预期：按最新 binding ruling，星号可补成 `@foo`，所以该 pattern 有效且匹配 `https://example.com:65536@foo/x`；只有固定非法端口 `https://example.com:65536/*` 必须拒绝。
+- 关注点：NFA 使用固定代表字符构造 witness，再交由 Node WHATWG `URL` 验证；这个 grammar 与 parser 的边界需在未来如增加 URL 语法支持时一并维护。原始输入与序列化 URL 双候选匹配是为保留有效字面 glob；测试覆盖当前空密码差异，并未尝试规定所有非规范 URL 序列化形式。
+- 未派发 agents。
