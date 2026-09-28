@@ -43,6 +43,7 @@ const DEFAULT_SETTINGS = Object.freeze({
   clickEnabled: true,
   linkDragEnabled: true,
   textDragEnabled: true,
+  timFixEnabled: true,
   domainRules: Object.freeze([]),
   urlRules: Object.freeze([])
 });
@@ -507,13 +508,16 @@ function normalizeSettings(rawSettings) {
       ? raw[switchName]
       : DEFAULT_SETTINGS[switchName];
   }
+  const timFixEnabled = typeof raw.timFixEnabled === "boolean"
+    ? raw.timFixEnabled
+    : DEFAULT_SETTINGS.timFixEnabled;
   const domainRules = Array.isArray(raw.domainRules)
     ? raw.domainRules.map(normalizeDomainRule).filter(Boolean)
     : [];
   const urlRules = Array.isArray(raw.urlRules)
     ? raw.urlRules.map(normalizeUrlRule).filter(Boolean)
     : [];
-  return { enabled, defaultAction, searchEngine: effectiveEngine, searchUrl, ...functions, domainRules, urlRules };
+  return { enabled, defaultAction, searchEngine: effectiveEngine, searchUrl, ...functions, timFixEnabled, domainRules, urlRules };
 }
 
 /** 校验自定义搜索地址：必须是 http(s) 开头且包含 %s 占位符。 */

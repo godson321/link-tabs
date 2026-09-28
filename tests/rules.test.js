@@ -594,6 +594,12 @@ test("解码 TIM 卡片跳转链接（ssl.ptlogin2.qq.com/jump 的 u1 参数）"
   assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent(encodeURIComponent("javascript:alert(1)"))), null);
   assert.equal(decodeTimJumpUrl("https://ssl.ptlogin2.qq.com/jump?u1=" + encodeURIComponent("data:text/html,x")), null);
 });
+test("TIM 链接修复开关默认开启且可关闭", () => {
+  assert.equal(DEFAULT_SETTINGS.timFixEnabled, true);
+  assert.equal(normalizeSettings({}).timFixEnabled, true);
+  assert.equal(normalizeSettings({ timFixEnabled: false }).timFixEnabled, false);
+  assert.equal(normalizeSettings({ timFixEnabled: "no" }).timFixEnabled, true);
+});
 
 // ===== 三块功能独立配置（点击链接 / 拖动链接 / 拖动文字搜索） =====
 
