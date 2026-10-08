@@ -34,6 +34,34 @@ function resolveLinkTarget(anchor) {
   return target;
 }
 
+/** 判断选区是否完整覆盖某个链接内容；边界比较也支持链接内部的嵌套元素。 */
+function isCompleteAnchorSelection(selection, anchor) {
+  if (selection === null || anchor === null || selection.rangeCount !== 1) return false;
+
+  try {
+    const selectedRange = selection.getRangeAt(0);
+    const anchorRange = document.createRange();
+    anchorRange.selectNodeContents(anchor);
+    return selectedRange.compareBoundaryPoints(Range.START_TO_START, anchorRange) === 0 &&
+      selectedRange.compareBoundaryPoints(Range.END_TO_END, anchorRange) === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** 解析选区中的完整 HTTP(S) 地址；含其他空白或不支持协议时保持原生搜索行为。 */
+function resolveSelectedHttpUrl(text) {
+  const value = typeof text === "string" ? text.trim() : "";
+  if (value === "" || /\s/.test(value)) return null;
+
+  try {
+    const target = new URL(value);
+    return ["http:", "https:"].includes(target.protocol) ? target : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 计算某块功能应执行的动作；规则计算异常时返回 null 并记录诊断，保持浏览器原生行为。 */
 function resolveActionDiagnosed(url, use) {
   try {
@@ -156,11 +184,13 @@ document.addEventListener("dragstart", event => {
     : (event.target?.parentElement ?? null);
   const dragTypes = Array.from(event.dataTransfer?.types ?? []);
   const modifierPressed = event.ctrlKey || event.shiftKey || event.altKey || event.metaKey;
+  const selection = window.getSelection();
+  const rawSelectionText = selection === null ? "" : selection.toString();
+  const selectionText = LinkTabsDrag.normalizeSelectionText(rawSelectionText);
+  const anchor = source === null ? null : source.closest("a[href]");
 
   // 选中文字的拖拽优先判定：选择拖拽不带 text/uri-list，且拖动源必须落在选区里，
   // 因此拖动未选中的链接不会走进这个分支。
-  const selection = window.getSelection();
-  const selectionText = selection === null ? "" : LinkTabsDrag.normalizeSelectionText(selection.toString());
   const searchArmed = LinkTabsDrag.shouldArmSearchDrag({
     trusted: event.isTrusted,
     sourceIsSearchable: selectionText !== "" &&
@@ -172,7 +202,6 @@ document.addEventListener("dragstart", event => {
     dragTypes,
     modifierPressed
   });
-  const anchor = source === null ? null : source.closest("a[href]");
   const linkArmed = LinkTabsDrag.shouldArmDrag({
     trusted: event.isTrusted,
     // 拖动链接里的图片时，用户拖的是图片而不是链接。
@@ -182,6 +211,16 @@ document.addEventListener("dragstart", event => {
   });
 
   if (searchArmed) {
+    const completeAnchor = isCompleteAnchorSelection(selection, anchor);
+    const target = completeAnchor
+      ? resolveLinkTarget(anchor)
+      : resolveSelectedHttpUrl(rawSelectionText);
+
+    if (target !== null) {
+      draggedTarget = { kind: "link", href: target.href };
+      return;
+    }
+
     draggedTarget = { kind: "search", text: selectionText };
     return;
   }
